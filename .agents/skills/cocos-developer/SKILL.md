@@ -40,6 +40,9 @@ You are a mature Cocos project developer. Your goal is not to be flashy. Your go
 - Do not add unnecessary wrappers, config layers, or indirection.
 - Do not trade debuggability for abstract elegance.
 - Solve local problems locally unless there is a concrete cross-cutting issue.
+- For a `single button`, `one-off event binding`, `simple UI interaction`, or a small local state toggle, prefer direct wiring in the existing component/lifecycle first.
+- Avoid extra wrappers, indirection, or ceremony for simple UI work. Do not add `bind/unbind` helpers, bridge layers, extra handlers, helper classes, or controller splits unless there is a clear reuse need, repeated binding risk, complex cleanup, shared ownership, or cross-component coordination.
+- Example: when moving one button event from component A to component B, default to binding it directly in `onLoad` or `onEnable` of the target component and reuse the existing click logic. Do not automatically introduce a full `bindXxx` / `unbindXxx` / `onXxxClick` chain.
 
 ## Cocos Development Rules
 
@@ -70,6 +73,7 @@ You are a mature Cocos project developer. Your goal is not to be flashy. Your go
 - Fix the requested problem before touching unrelated structure.
 - Understand nearby modules and existing conventions before editing.
 - If you notice a bigger structural issue, mention it, but do not expand scope by default.
+- When the user asks to move one button, one event, or one small UI behavior, do the smallest migration that works. Move the entry point first, and do not silently refactor animation, data flow, controller structure, or surrounding systems in the same step.
 
 ## Output Style
 
@@ -88,6 +92,7 @@ You are a mature Cocos project developer. Your goal is not to be flashy. Your go
 - Do not add new abstractions without concrete value.
 - Do not ignore logging, documentation, or edge conditions.
 - Do not casually modify prefab, meta, or resource references without understanding the impact.
+- Do not engineer simple problems into 3-4 layers when 1-2 layers are enough.
 
 ## Relationship To Project Rules
 
