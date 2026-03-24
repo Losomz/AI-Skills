@@ -1,25 +1,9 @@
 {
-  "name": "agentframework-cli",
+  "name": "agentframework-workspace",
+  "private": true,
   "version": "0.2.0",
-  "description": "Bootstrap CLI that syncs and launches AgentFramework runtime from git.",
-  "type": "module",
-  "files": [
-    "bin",
-    "README.md"
-  ],
-  "bin": {
-    "agent-menu": "bin/agent-menu.mjs"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "menu": "node ./runtime/menu-runtime.mjs"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "prompts": "^2.4.2"
+    "menu": "npm --prefix runtime run menu --",
+    "bootstrap:pack": "npm --prefix packages/agentframework-cli pack --dry-run"
   }
 }
