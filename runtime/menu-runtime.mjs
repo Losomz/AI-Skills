@@ -78,9 +78,10 @@ async function writeTemplateLock(selected) {
         skills: selected.items,
         runtimeRoot: rootDir,
         installedAt: new Date().toISOString(),
+        createdAgents: false,
     };
 
-    await fs.writeFile(getProjectTemplateLockPath(), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    return payload;
 }
 
 async function ensureProjectAgentsFile(selected) {
@@ -100,14 +101,61 @@ async function applyTemplateToProject(selected) {
         await syncSkillToProject(skillName);
     }
 
-    await writeTemplateLock(selected);
     const createdAgents = await ensureProjectAgentsFile(selected);
+    const templateLock = await writeTemplateLock(selected);
+    templateLock.createdAgents = createdAgents;
+    await fs.writeFile(getProjectTemplateLockPath(), `${JSON.stringify(templateLock, null, 2)}\n`, 'utf8');
 
     return {
         skillsDir: getProjectSkillsDir(),
         templateLockPath: getProjectTemplateLockPath(),
         agentsPath: getProjectAgentsPath(),
         createdAgents,
+    };
+}
+
+async function readTemplateLock() {
+    const lockPath = getProjectTemplateLockPath();
+    if (!await pathExists(lockPath)) {
+        return null;
+    }
+
+    return JSON.parse(await fs.readFile(lockPath, 'utf8'));
+}
+
+async function clearTemplateFromProject() {
+    const lock = await readTemplateLock();
+    if (!lock) {
+        return {
+            cleared: false,
+            reason: '当前项目没有模板记录。',
+        };
+    }
+
+    const skillsDir = getProjectSkillsDir();
+    for (const skillName of lock.skills || []) {
+        await fs.rm(path.join(skillsDir, skillName), { recursive: true, force: true });
+    }
+
+    const remainingSkills = await pathExists(skillsDir)
+        ? await fs.readdir(skillsDir)
+        : [];
+    if (remainingSkills.length === 0) {
+        await fs.rm(skillsDir, { recursive: true, force: true });
+    }
+
+    await fs.rm(getProjectTemplateLockPath(), { force: true });
+
+    if (lock.createdAgents) {
+        await fs.rm(getProjectAgentsPath(), { force: true });
+    }
+
+    return {
+        cleared: true,
+        skillsDir,
+        templateLockPath: getProjectTemplateLockPath(),
+        agentsPath: getProjectAgentsPath(),
+        removedAgents: Boolean(lock.createdAgents),
     };
 }
 
@@ -184,6 +232,23 @@ async function handleTemplateSelection() {
     console.log(`将包含: ${selected.items.join(', ')}`);
     console.log('');
 
+    const { confirmed } = await prompts({
+        type: 'confirm',
+        name: 'confirmed',
+        message: `确认拉取模板「${selected.title}」到当前项目吗？`,
+        initial: true,
+    }, {
+        onCancel: () => {
+            throw new Error('cancelled');
+        },
+    });
+
+    if (!confirmed) {
+        console.log('已取消拉取模板。');
+        console.log('');
+        return;
+    }
+
     const result = await applyTemplateToProject(selected);
 
     console.log(`已同步到项目目录: ${projectDir}`);
@@ -193,6 +258,48 @@ async function handleTemplateSelection() {
         console.log(`已生成项目说明: ${result.agentsPath}`);
     } else {
         console.log(`保留现有项目说明: ${result.agentsPath}`);
+    }
+    console.log('');
+}
+
+async function handleClearSelection() {
+    const lock = await readTemplateLock();
+    if (!lock) {
+        console.log('当前项目没有可清空的模板内容。');
+        console.log('');
+        return;
+    }
+
+    const { confirmed } = await prompts({
+        type: 'confirm',
+        name: 'confirmed',
+        message: `确认清空当前项目已拉取的模板「${lock.title}」吗？`,
+        initial: false,
+    }, {
+        onCancel: () => {
+            throw new Error('cancelled');
+        },
+    });
+
+    if (!confirmed) {
+        console.log('已取消清空。');
+        console.log('');
+        return;
+    }
+
+    const result = await clearTemplateFromProject();
+    if (!result.cleared) {
+        console.log(result.reason);
+        console.log('');
+        return;
+    }
+
+    console.log(`已清空模板记录: ${result.templateLockPath}`);
+    console.log(`已清理 skills 目录: ${result.skillsDir}`);
+    if (result.removedAgents) {
+        console.log(`已删除自动生成的项目说明: ${result.agentsPath}`);
+    } else {
+        console.log(`保留项目说明文件: ${result.agentsPath}`);
     }
     console.log('');
 }
@@ -238,8 +345,7 @@ async function main() {
                 message: '请选择操作',
                 choices: [
                     { title: '拉取模板到当前项目', value: 'pull-template' },
-                    { title: '查看可用模板', value: 'list-templates' },
-                    { title: '查看当前 runtime 可用 skills', value: 'list-skills' },
+                    { title: '清空当前项目模板', value: 'clear-template' },
                     { title: '退出', value: 'exit' },
                 ],
             }, {
@@ -252,10 +358,8 @@ async function main() {
 
             if (action === 'pull-template') {
                 await handleTemplateSelection();
-            } else if (action === 'list-templates') {
-                await showTemplateCatalog();
-            } else if (action === 'list-skills') {
-                await showInstalledSkills(installedSkills);
+            } else if (action === 'clear-template') {
+                await handleClearSelection();
             } else if (action === 'exit') {
                 console.log('已退出 AgentFramework Menu。');
                 break;
