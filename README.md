@@ -222,6 +222,8 @@ packages/agentframework-cli
 - 从 git 同步最新 runtime 仓库内容。
 - 检查本地缓存里的 runtime 版本是否落后。
 - 必要时更新依赖后再启动 runtime。
+- 执行模板拉取时，把选中的 skills 同步到当前项目的 `.agents/skills`。
+- 写入 `.agents/template-lock.json`，并在缺失时生成项目级 `AGENTS.md`。
 
 也就是说，后续你主要维护这个仓库里的 runtime 即可；只有 bootstrap 启动逻辑变更时，才需要重新发布 npm 包。
 

@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
+const invocationDir = process.cwd();
 const repoUrl = process.env.AGENTFRAMEWORK_REPO_URL || 'https://github.com/Losomz/AI-Agents.git';
 const cacheRoot = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.agentframework');
 const repoDir = path.join(cacheRoot, 'repo');
@@ -37,7 +38,10 @@ function run(command, commandArgs, options = {}) {
             cwd: options.cwd,
             stdio: options.stdio || 'pipe',
             shell: false,
-            env: process.env,
+            env: {
+                ...process.env,
+                ...options.env,
+            },
         });
 
         let stdout = '';
@@ -227,7 +231,14 @@ async function ensureRuntimeDependencies(syncResult) {
 }
 
 async function runRuntime() {
-    await run(process.execPath, [runtimeEntry, ...args], { cwd: repoDir, stdio: 'inherit' });
+    await run(process.execPath, [runtimeEntry, ...args], {
+        cwd: invocationDir,
+        stdio: 'inherit',
+        env: {
+            AGENTFRAMEWORK_TARGET_DIR: invocationDir,
+            AGENTFRAMEWORK_RUNTIME_ROOT: repoDir,
+        },
+    });
 }
 
 async function main() {

@@ -18,6 +18,7 @@ What the bootstrap does:
 - checks whether the cached runtime version is behind the remote version
 - installs runtime dependencies when needed
 - launches the latest runtime CLI
+- when you pull a template, syncs the selected skills into the current project's `.agents/skills`
 
 Common commands:
 

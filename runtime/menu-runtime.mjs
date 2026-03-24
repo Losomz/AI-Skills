@@ -23,7 +23,93 @@ const templateCatalog = [
     },
 ];
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
+const projectDir = process.env.AGENTFRAMEWORK_TARGET_DIR || process.cwd();
+const runtimeSkillsDir = path.join(rootDir, '.agents', 'skills');
+const pullTemplateArg = rawArgs.find((arg) => arg.startsWith('--pull-template='))?.slice('--pull-template='.length);
+
+function getProjectSkillsDir() {
+    return path.join(projectDir, '.agents', 'skills');
+}
+
+function getProjectTemplateLockPath() {
+    return path.join(projectDir, '.agents', 'template-lock.json');
+}
+
+function getProjectAgentsPath() {
+    return path.join(projectDir, 'AGENTS.md');
+}
+
+async function pathExists(targetPath) {
+    try {
+        await fs.access(targetPath);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function ensureDir(targetPath) {
+    await fs.mkdir(targetPath, { recursive: true });
+}
+
+function buildAgentsTemplate(selected) {
+    const skillList = selected.items.map((item) => `- ${item}`).join('\n');
+    return `# AGENTS\n\n## Base Skills\n\n${skillList}\n\n## Notes\n\n- Skills are synced from AgentFramework into .agents/skills.\n- Add project-specific rules here instead of editing the synced skill files.\n`;
+}
+
+async function syncSkillToProject(skillName) {
+    const sourceDir = path.join(runtimeSkillsDir, skillName);
+    const targetDir = path.join(getProjectSkillsDir(), skillName);
+
+    if (!await pathExists(sourceDir)) {
+        throw new Error(`未找到 skill: ${skillName}`);
+    }
+
+    await fs.rm(targetDir, { recursive: true, force: true });
+    await fs.cp(sourceDir, targetDir, { recursive: true, force: true });
+}
+
+async function writeTemplateLock(selected) {
+    const payload = {
+        template: selected.value,
+        title: selected.title,
+        skills: selected.items,
+        runtimeRoot: rootDir,
+        installedAt: new Date().toISOString(),
+    };
+
+    await fs.writeFile(getProjectTemplateLockPath(), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+async function ensureProjectAgentsFile(selected) {
+    const agentsPath = getProjectAgentsPath();
+    if (await pathExists(agentsPath)) {
+        return false;
+    }
+
+    await fs.writeFile(agentsPath, buildAgentsTemplate(selected), 'utf8');
+    return true;
+}
+
+async function applyTemplateToProject(selected) {
+    await ensureDir(getProjectSkillsDir());
+
+    for (const skillName of selected.items) {
+        await syncSkillToProject(skillName);
+    }
+
+    await writeTemplateLock(selected);
+    const createdAgents = await ensureProjectAgentsFile(selected);
+
+    return {
+        skillsDir: getProjectSkillsDir(),
+        templateLockPath: getProjectTemplateLockPath(),
+        agentsPath: getProjectAgentsPath(),
+        createdAgents,
+    };
+}
 
 async function readInstalledSkills() {
     try {
@@ -97,13 +183,40 @@ async function handleTemplateSelection() {
     console.log(`说明: ${selected.description}`);
     console.log(`将包含: ${selected.items.join(', ')}`);
     console.log('');
-    console.log('当前版本已改为 bootstrap + git runtime 模式。');
-    console.log('后续会在这里接入模板同步到当前项目的逻辑。');
+
+    const result = await applyTemplateToProject(selected);
+
+    console.log(`已同步到项目目录: ${projectDir}`);
+    console.log(`skills 目录: ${result.skillsDir}`);
+    console.log(`模板记录: ${result.templateLockPath}`);
+    if (result.createdAgents) {
+        console.log(`已生成项目说明: ${result.agentsPath}`);
+    } else {
+        console.log(`保留现有项目说明: ${result.agentsPath}`);
+    }
     console.log('');
 }
 
 async function main() {
     const installedSkills = await readInstalledSkills();
+
+    if (pullTemplateArg) {
+        const selected = templateCatalog.find((item) => item.value === pullTemplateArg);
+        if (!selected) {
+            throw new Error(`未找到模板: ${pullTemplateArg}`);
+        }
+
+        const result = await applyTemplateToProject(selected);
+        console.log(`已同步到项目目录: ${projectDir}`);
+        console.log(`skills 目录: ${result.skillsDir}`);
+        console.log(`模板记录: ${result.templateLockPath}`);
+        if (result.createdAgents) {
+            console.log(`已生成项目说明: ${result.agentsPath}`);
+        } else {
+            console.log(`保留现有项目说明: ${result.agentsPath}`);
+        }
+        return;
+    }
 
     if (args.has('--list-templates')) {
         await showTemplateCatalog();
