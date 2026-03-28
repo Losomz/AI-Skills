@@ -217,7 +217,42 @@ node skills/cocos-general/scripts/validate-prefab-ids.mjs <path-to-prefab>
 - Strip BOM before JSON parse in automation scripts.
 - Script component `__type__` must use compressed UUID from `.meta`, not raw UUID.
 
+## Large Prefab Generation (Critical)
+
+Do NOT write large prefab JSON directly via file-write tools.
+Content is silently truncated when it exceeds the transport token limit, producing broken JSON
+that crashes Cocos Creator on open.
+
+**Rule:** For any prefab with more than ~30 objects, write a Python/Node generator script,
+execute it, validate, then delete the script.
+
+```bash
+python gen_mypanel.py
+node .agents/skills/cocos-general/scripts/validate-prefab-ids.mjs assets/resources/ui/MyPanel.prefab
+rm gen_mypanel.py
+```
+
+See full template: [references/prefab-generation-via-script.md](./references/prefab-generation-via-script.md)
+
+## UI Node Component Completeness (Critical)
+
+Every UI node that participates in Cocos event dispatch MUST have `cc.UITransform`.
+Missing UITransform causes `Cannot read properties of null (reading 'cameraPriority')`
+and freezes the editor prefab view.
+
+| Node role | Required |
+|---|---|
+| Button / Toggle node | `cc.UITransform` + `cc.Button`/`cc.Toggle` |
+| Toggle Checkmark child | `cc.UITransform` |
+| Label node | `cc.UITransform` + `cc.Label` |
+| Container / Section | `cc.UITransform` + `cc.Sprite` (or other renderer) |
+| Blocker / overlay | `cc.UITransform` + `cc.Sprite` (semi-transparent) |
+
+A node with `cc.UITransform` but **no renderer** also triggers the same error.
+Always pair UITransform with at least one renderer on non-logic container nodes.
+
 ## References
 - Quick start (Chinese): [references/quickstart.zh-CN.md](./references/quickstart.zh-CN.md)
 - Module index: [references/module-index.md](./references/module-index.md)
 - Deep prefab repair checklist: [references/prefab-rebuild-checklist.md](./references/prefab-rebuild-checklist.md)
+- Large prefab generation via script: [references/prefab-generation-via-script.md](./references/prefab-generation-via-script.md)
