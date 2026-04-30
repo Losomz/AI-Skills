@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cocos Developer"
+  short_description: "Senior Cocos engineering mode for stable implementation, debugging, and project-safe changes."
+  default_prompt: "Use $cocos-developer for general Cocos development, debugging, architecture-safe changes, and project-consistent implementation. Use $cocos-general when prefab/meta/UUID structure work is needed."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cocos Code Review"
+  short_description: "Review Cocos Creator changes for lifecycle, UI, prefab, event, and resource risks."
+  default_prompt: "Use $cocos-code-review to review a Cocos Creator change for lifecycle, event, UI, prefab, and resource risks."

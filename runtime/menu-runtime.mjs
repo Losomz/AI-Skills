@@ -9,11 +9,18 @@ import prompts from 'prompts';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const skillsDir = path.join(rootDir, '.agents', 'skills');
 
+const aiTools = [
+    { value: 'opencode', title: 'OpenCode', configDir: '.opencode' },
+    { value: 'cursor', title: 'Cursor', configDir: '.cursor' },
+    { value: 'windsurf', title: 'Windsurf', configDir: '.windsurf' },
+];
+
 const templateCatalog = [
     {
         value: 'cocos-developer-template',
         title: 'Cocos 开发模板',
         description: '适用于 Cocos 开发场景，强调稳定实现、日志、文档与极简改动。',
+        tools: ['opencode'],
         items: [
             'cocos-developer',
             'cocos-general',
@@ -28,13 +35,19 @@ const args = new Set(rawArgs);
 const projectDir = process.env.AGENTFRAMEWORK_TARGET_DIR || process.cwd();
 const runtimeSkillsDir = path.join(rootDir, '.agents', 'skills');
 const pullTemplateArg = rawArgs.find((arg) => arg.startsWith('--pull-template='))?.slice('--pull-template='.length);
+const pullToolArg = rawArgs.find((arg) => arg.startsWith('--tool='))?.slice('--tool='.length);
 
-function getProjectSkillsDir() {
-    return path.join(projectDir, '.agents', 'skills');
+function getProjectConfigDir(tool) {
+    const aiTool = aiTools.find(t => t.value === tool);
+    return path.join(projectDir, aiTool?.configDir || '.agents');
 }
 
-function getProjectTemplateLockPath() {
-    return path.join(projectDir, '.agents', 'template-lock.json');
+function getProjectSkillsDir(tool) {
+    return path.join(getProjectConfigDir(tool), 'skills');
+}
+
+function getProjectTemplateLockPath(tool) {
+    return path.join(getProjectConfigDir(tool), 'template-lock.json');
 }
 
 function getProjectAgentsPath() {
@@ -59,9 +72,10 @@ function buildAgentsTemplate(selected) {
     return `# AGENTS\n\n## Base Skills\n\n${skillList}\n\n## Notes\n\n- Skills are synced from AgentFramework into .agents/skills.\n- Add project-specific rules here instead of editing the synced skill files.\n`;
 }
 
-async function syncSkillToProject(skillName) {
-    const sourceDir = path.join(runtimeSkillsDir, skillName);
-    const targetDir = path.join(getProjectSkillsDir(), skillName);
+async function syncSkillToProject(skillName, tool) {
+    const toolConfig = aiTools.find(t => t.value === tool);
+    const sourceDir = path.join(rootDir, toolConfig.configDir, 'skills', skillName);
+    const targetDir = path.join(getProjectSkillsDir(tool), skillName);
 
     if (!await pathExists(sourceDir)) {
         throw new Error(`未找到 skill: ${skillName}`);
@@ -71,10 +85,22 @@ async function syncSkillToProject(skillName) {
     await fs.cp(sourceDir, targetDir, { recursive: true, force: true });
 }
 
-async function writeTemplateLock(selected) {
+async function syncCommandsToProject(tool) {
+    const toolConfig = aiTools.find(t => t.value === tool);
+    const sourceDir = path.join(rootDir, toolConfig.configDir, 'commands');
+    const targetDir = path.join(getProjectConfigDir(tool), 'commands');
+
+    if (await pathExists(sourceDir)) {
+        await fs.rm(targetDir, { recursive: true, force: true });
+        await fs.cp(sourceDir, targetDir, { recursive: true, force: true });
+    }
+}
+
+async function writeTemplateLock(selected, tool) {
     const payload = {
         template: selected.value,
         title: selected.title,
+        tool: tool,
         skills: selected.items,
         runtimeRoot: rootDir,
         installedAt: new Date().toISOString(),
@@ -94,28 +120,30 @@ async function ensureProjectAgentsFile(selected) {
     return true;
 }
 
-async function applyTemplateToProject(selected) {
-    await ensureDir(getProjectSkillsDir());
+async function applyTemplateToProject(selected, tool) {
+    await ensureDir(getProjectSkillsDir(tool));
 
     for (const skillName of selected.items) {
-        await syncSkillToProject(skillName);
+        await syncSkillToProject(skillName, tool);
     }
 
+    await syncCommandsToProject(tool);
+
     const createdAgents = await ensureProjectAgentsFile(selected);
-    const templateLock = await writeTemplateLock(selected);
+    const templateLock = await writeTemplateLock(selected, tool);
     templateLock.createdAgents = createdAgents;
-    await fs.writeFile(getProjectTemplateLockPath(), `${JSON.stringify(templateLock, null, 2)}\n`, 'utf8');
+    await fs.writeFile(getProjectTemplateLockPath(tool), `${JSON.stringify(templateLock, null, 2)}\n`, 'utf8');
 
     return {
-        skillsDir: getProjectSkillsDir(),
-        templateLockPath: getProjectTemplateLockPath(),
+        skillsDir: getProjectSkillsDir(tool),
+        templateLockPath: getProjectTemplateLockPath(tool),
         agentsPath: getProjectAgentsPath(),
         createdAgents,
     };
 }
 
-async function readTemplateLock() {
-    const lockPath = getProjectTemplateLockPath();
+async function readTemplateLock(tool) {
+    const lockPath = getProjectTemplateLockPath(tool);
     if (!await pathExists(lockPath)) {
         return null;
     }
@@ -123,8 +151,8 @@ async function readTemplateLock() {
     return JSON.parse(await fs.readFile(lockPath, 'utf8'));
 }
 
-async function clearTemplateFromProject() {
-    const lock = await readTemplateLock();
+async function clearTemplateFromProject(tool) {
+    const lock = await readTemplateLock(tool);
     if (!lock) {
         return {
             cleared: false,
@@ -132,7 +160,7 @@ async function clearTemplateFromProject() {
         };
     }
 
-    const skillsDir = getProjectSkillsDir();
+    const skillsDir = getProjectSkillsDir(tool);
     for (const skillName of lock.skills || []) {
         await fs.rm(path.join(skillsDir, skillName), { recursive: true, force: true });
     }
@@ -144,7 +172,7 @@ async function clearTemplateFromProject() {
         await fs.rm(skillsDir, { recursive: true, force: true });
     }
 
-    await fs.rm(getProjectTemplateLockPath(), { force: true });
+    await fs.rm(getProjectTemplateLockPath(tool), { force: true });
 
     if (lock.createdAgents) {
         await fs.rm(getProjectAgentsPath(), { force: true });
@@ -153,7 +181,7 @@ async function clearTemplateFromProject() {
     return {
         cleared: true,
         skillsDir,
-        templateLockPath: getProjectTemplateLockPath(),
+        templateLockPath: getProjectTemplateLockPath(tool),
         agentsPath: getProjectAgentsPath(),
         removedAgents: Boolean(lock.createdAgents),
     };
@@ -205,11 +233,32 @@ async function showInstalledSkills(installedSkills) {
 }
 
 async function handleTemplateSelection() {
+    const { tool } = await prompts({
+        type: 'select',
+        name: 'tool',
+        message: '请选择目标 AI 工具',
+        choices: aiTools.map((item) => ({
+            title: item.title,
+            value: item.value,
+        })),
+    }, {
+        onCancel: () => {
+            throw new Error('cancelled');
+        },
+    });
+
+    const availableTemplates = templateCatalog.filter(t => t.tools.includes(tool));
+    if (availableTemplates.length === 0) {
+        console.log(`暂无适用于 ${aiTools.find(t => t.value === tool).title} 的模板。`);
+        console.log('');
+        return;
+    }
+
     const { template } = await prompts({
         type: 'select',
         name: 'template',
         message: '请选择要拉取的模板',
-        choices: templateCatalog.map((item) => ({
+        choices: availableTemplates.map((item) => ({
             title: item.title,
             description: item.description,
             value: item.value,
@@ -249,7 +298,7 @@ async function handleTemplateSelection() {
         return;
     }
 
-    const result = await applyTemplateToProject(selected);
+    const result = await applyTemplateToProject(selected, tool);
 
     console.log(`已同步到项目目录: ${projectDir}`);
     console.log(`skills 目录: ${result.skillsDir}`);
@@ -263,7 +312,21 @@ async function handleTemplateSelection() {
 }
 
 async function handleClearSelection() {
-    const lock = await readTemplateLock();
+    const { tool } = await prompts({
+        type: 'select',
+        name: 'tool',
+        message: '请选择要清空的 AI 工具配置',
+        choices: aiTools.map((item) => ({
+            title: item.title,
+            value: item.value,
+        })),
+    }, {
+        onCancel: () => {
+            throw new Error('cancelled');
+        },
+    });
+
+    const lock = await readTemplateLock(tool);
     if (!lock) {
         console.log('当前项目没有可清空的模板内容。');
         console.log('');
@@ -287,7 +350,7 @@ async function handleClearSelection() {
         return;
     }
 
-    const result = await clearTemplateFromProject();
+    const result = await clearTemplateFromProject(tool);
     if (!result.cleared) {
         console.log(result.reason);
         console.log('');
@@ -307,13 +370,13 @@ async function handleClearSelection() {
 async function main() {
     const installedSkills = await readInstalledSkills();
 
-    if (pullTemplateArg) {
+    if (pullTemplateArg && pullToolArg) {
         const selected = templateCatalog.find((item) => item.value === pullTemplateArg);
         if (!selected) {
             throw new Error(`未找到模板: ${pullTemplateArg}`);
         }
 
-        const result = await applyTemplateToProject(selected);
+        const result = await applyTemplateToProject(selected, pullToolArg);
         console.log(`已同步到项目目录: ${projectDir}`);
         console.log(`skills 目录: ${result.skillsDir}`);
         console.log(`模板记录: ${result.templateLockPath}`);

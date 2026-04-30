@@ -2,7 +2,7 @@
 
 这是一个个人 AI Agent 资产仓库，用来集中管理可复用的 agent 规则、skills、提示模板、工作流和技术栈约定。
 
-目标不是只服务某一个具体工具，而是把这些内容沉淀为一套长期可维护的个人工作流资产，再按不同 AI 平台的能力映射到项目中使用。
+针对不同 AI 工具（OpenCode、Cursor、Windsurf 等）提供专门优化的配置，每个工具有独立的目录结构和适配内容。
 
 ## 这个仓库是干什么的
 
@@ -30,26 +30,39 @@
 - 具体项目中只保留项目特有内容，不重复维护通用内容。
 - 面向不同 AI 工具时，优先从这里派生生成目标文件，而不是反过来把某个平台私有格式当作唯一真相。
 
-## 标准目录结构
+## 目录结构
 
 ```text
-.agents/
-├─ rules/         # 常驻规则：编码原则、提交流程、架构约束、风格约束
-├─ stacks/        # 技术栈规则：Cocos、React、Node、Python 等
-├─ skills/        # 可调用能力包：多步工作流、专项能力、诊断流程
-├─ agents/        # 角色定义：reviewer、planner、implementer 等
-├─ prompts/       # 轻量提示模板：PR、排障、重构、测试生成等
-├─ workflows/     # 跨技能的流程编排说明
-├─ templates/     # 可生成到项目中的模板文件
-├─ references/    # 通用参考资料
-└─ memory/        # 个人长期偏好、经验沉淀、约定索引
+AgentFramework/
+├─ .agents/           # 通用规则源（保留）
+│  └─ skills/         # 通用 skills
+├─ .opencode/         # OpenCode 专用配置
+│  ├─ skills/         # OpenCode 格式的 skills
+│  └─ commands/       # OpenCode 自定义命令
+├─ .cursor/           # Cursor 专用配置（规划中）
+├─ .windsurf/         # Windsurf 专用配置（规划中）
+├─ runtime/           # CLI 工具
+├─ packages/          # npm 包
+└─ README.md
 ```
 
-说明：
+## 支持的 AI 工具
 
-- 当前仓库已优先落地 `skills/`。
-- 其他目录可以按需要逐步补齐，不要求一开始全部到位。
-- 目录结构是推荐标准，不是硬性要求；重点是长期可维护和方便复用。
+### OpenCode
+
+- 目录：`.opencode/`
+- 包含：skills、commands
+- 状态：✅ 已支持
+
+### Cursor
+
+- 目录：`.cursor/`
+- 状态：🚧 规划中
+
+### Windsurf
+
+- 目录：`.windsurf/`
+- 状态：🚧 规划中
 
 ## 各目录职责
 
@@ -193,20 +206,46 @@
 
 ## CLI 使用
 
-### Runtime 本地开发
-
-仓库内真正的 CLI runtime 放在 `runtime/`，本地开发直接运行它：
+### 交互式菜单
 
 ```bash
-npm --prefix runtime install
 npm run menu
 ```
 
-常用命令：
+选择流程：
+1. 选择目标 AI 工具（OpenCode / Cursor / Windsurf）
+2. 选择模板（Cocos 开发模板等）
+3. 确认同步到当前项目
+
+### 命令行参数
 
 ```bash
-npm --prefix runtime run menu -- --list-templates
-npm --prefix runtime run menu -- --list-skills
+# 拉取模板到项目
+npm run menu -- --pull-template=cocos-developer-template --tool=opencode
+
+# 列出可用模板
+npm run menu -- --list-templates
+
+# 列出可用 skills
+npm run menu -- --list-skills
+```
+
+### 同步结果
+
+同步后，目标项目会生成对应的配置目录：
+
+```text
+YourProject/
+├─ .opencode/
+│  ├─ skills/
+│  │  ├─ cocos-developer/
+│  │  ├─ cocos-general/
+│  │  ├─ cocos-code-review/
+│  │  └─ chinese-encoding/
+│  ├─ commands/
+│  │  └─ commit.md
+│  └─ template-lock.json
+└─ AGENTS.md
 ```
 
 ### Bootstrap npm 包

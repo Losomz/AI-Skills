@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cocos General"
+  short_description: "General Cocos workflow with stable prefab creation module."
+  default_prompt: "Use $cocos-general for stable prefab creation, validation, and Cocos prefab workflow checks."
