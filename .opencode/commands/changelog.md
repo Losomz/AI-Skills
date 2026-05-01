@@ -19,9 +19,48 @@ agent: general
 
 ## 流程
 
+### 0. 前置提交检查
+
+生成更改日志前必须先检查工作区，确保 changelog 只基于已经提交的改动生成。
+
+1. **检查未提交内容**：
+   ```bash
+   git status --short
+   ```
+
+2. **如果存在未提交内容，先提交业务改动**：
+   - 不要直接调用 `/commit`，当前流程固定手动执行 `/commit` 等价操作。
+   - 业务提交阶段不要包含 `docs/CHANGELOG.md`。
+   - 先提交功能、修复、资源、场景、配置等真实改动；提交完成后再进入 changelog 生成。
+
+3. **手动执行 `/commit` 等价流程**：
+   ```bash
+   git status --short
+   git diff
+   git diff --cached
+   git log --oneline -10
+   ```
+   - 分析暂存和未暂存改动，确认提交范围。
+   - 不提交密钥、`.env`、凭据等敏感文件。
+   - 根据改动生成准确的 commit message。
+   - 执行：
+     ```bash
+     git add <相关文件>
+     git commit -m "<commit message>"
+     ```
+   - 提交后再次运行 `git status --short --branch` 验证。
+
+4. **如果涉及 Git 子模块**：
+   - 先进入子模块检查状态并提交子模块内改动。
+   - 再回到父仓库提交子模块指针和父仓库相关改动。
+   - 不要把子模块未提交工作区直接留给父仓库 changelog 流程处理。
+
+5. **如果没有未提交内容**：
+   - 直接进入下一步，从上次 tag 到当前 HEAD 分析 commits。
+
 ### 1. 获取 commits
 
-运行命令获取自上次 tag 以来的所有 commits。
+运行命令获取自上次 tag 以来的所有 commits。此时当前 HEAD 必须已经包含本次业务改动提交。
 
 ### 2. 分析每个 commit
 
@@ -152,11 +191,13 @@ agent: general
 
 5. **保存文件**
 
-6. **提交 changelog 文件**：
+6. **单独提交 changelog 文件**：
    ```bash
    git add docs/CHANGELOG.md
    git commit -m "chore: 发布 v0.1.0 版本更新日志"
    ```
+   - 这个提交只应包含 `docs/CHANGELOG.md`。
+   - 不要把业务改动和 changelog 放在同一个提交里。
 
 ### 5. 创建 Git Tag
 
@@ -165,11 +206,13 @@ agent: general
    git tag v0.1.0
    ```
 
-2. **推送 commit 和 tag**：
-   ```bash
-   git push
-   git push origin v0.1.0
-   ```
+2. **推送规则**：
+   - 默认不要自动推送 commit 或 tag。
+   - 只有用户明确要求推送时，才执行：
+     ```bash
+     git push
+     git push origin v0.1.0
+     ```
 
 ### 6. 输出结果
 
@@ -177,7 +220,7 @@ agent: general
 - 显示版本号和日期
 - 告知用户文件已更新并提交：`docs/CHANGELOG.md`
 - 告知用户已创建 Git tag：`v0.1.0`
-- 告知用户已推送到远程仓库
+- 如果用户要求推送，告知用户已推送 commit 和 tag；否则说明未推送
 
 ## 注意事项
 
