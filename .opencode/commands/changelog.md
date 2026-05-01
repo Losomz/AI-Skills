@@ -206,13 +206,11 @@ agent: general
    git tag v0.1.0
    ```
 
-2. **推送规则**：
-   - 默认不要自动推送 commit 或 tag。
-   - 只有用户明确要求推送时，才执行：
-     ```bash
-     git push
-     git push origin v0.1.0
-     ```
+2. **推送 commit 和 tag**：
+   ```bash
+   git push
+   git push origin v0.1.0
+   ```
 
 ### 6. 输出结果
 
@@ -220,7 +218,7 @@ agent: general
 - 显示版本号和日期
 - 告知用户文件已更新并提交：`docs/CHANGELOG.md`
 - 告知用户已创建 Git tag：`v0.1.0`
-- 如果用户要求推送，告知用户已推送 commit 和 tag；否则说明未推送
+- 告知用户已推送 commit 和 tag
 
 ## 注意事项
 
