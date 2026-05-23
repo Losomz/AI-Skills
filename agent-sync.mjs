@@ -6,6 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
+import { emitKeypressEvents } from 'node:readline';
 import { stdin as input, stdout as output } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
@@ -52,7 +53,7 @@ const syncPackages = [
 ];
 
 function printUsage() {
-  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 交互选择同步内容\n  node agent-sync.mjs pi             # 全量覆盖同步 Pi 配置\n  node agent-sync.mjs opencode       # 全量覆盖同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程、不自我升级\n  node agent-sync.mjs pi --no-commit # 只同步，不自动提交和推送\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步时会删除目标目录再复制配置源，不创建备份。\n  - 同步完成后会自动提交并推送同步产生的 Git 改动，提交信息形如：✨ feat(pi): 工具升级。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
+  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 进入菜单，方向键/Enter 选择同步内容\n  node agent-sync.mjs pi             # 全量覆盖同步 Pi 配置\n  node agent-sync.mjs opencode       # 全量覆盖同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程、不自我升级\n  node agent-sync.mjs pi --no-commit # 只同步，不自动提交和推送\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步时会删除目标目录再复制配置源，不创建备份。\n  - 选择内容和确认步骤优先用菜单按钮式交互；没有 TTY 时才退回文本输入。\n  - 同步完成后会自动提交并推送同步产生的 Git 改动，提交信息形如：✨ feat(pi): 工具升级。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
 }
 
 function run(command, args, options = {}) {
@@ -286,15 +287,121 @@ async function autoCommitAndPush(packages, syncedTargets) {
   await run('git', ['push'], { cwd: PROJECT_DIR, stdio: 'inherit' });
 }
 
+function isInteractiveTerminal() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+function clearMenuScreen() {
+  output.write('\x1b[2J\x1b[0f');
+}
+
+async function selectMenu(message, items, fallbackPrompt) {
+  if (!isInteractiveTerminal()) {
+    console.log(message);
+    items.forEach((item, index) => {
+      console.log(`  ${index + 1}. ${item.label}`);
+    });
+    console.log('');
+
+    const rl = createInterface({ input, output });
+    try {
+      const answer = await rl.question(fallbackPrompt);
+      const value = answer.trim();
+      if (!value) return undefined;
+
+      const byNumber = Number(value);
+      if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= items.length) {
+        return items[byNumber - 1].value;
+      }
+
+      const byLabel = items.find((item) => item.label === value || item.value === value);
+      return byLabel?.value;
+    } finally {
+      rl.close();
+    }
+  }
+
+  return await new Promise((resolve) => {
+    let selectedIndex = 0;
+    let finished = false;
+
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      process.stdin.off('keypress', onKeypress);
+      if (typeof process.stdin.setRawMode === 'function') {
+        process.stdin.setRawMode(false);
+      }
+      process.stdin.pause();
+      output.write('\x1b[?25h');
+    };
+
+    const finish = (value) => {
+      cleanup();
+      resolve(value);
+    };
+
+    const render = () => {
+      clearMenuScreen();
+      output.write('\x1b[?25l');
+      console.log(message);
+      console.log('');
+      items.forEach((item, index) => {
+        const marker = index === selectedIndex ? '❯' : ' ';
+        console.log(` ${marker} ${item.label}`);
+      });
+      console.log('');
+      console.log('↑↓ 选择，Enter 确认，Esc 取消');
+    };
+
+    const onKeypress = (_str, key) => {
+      if (!key) return;
+      if (key.name === 'up') {
+        selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+        render();
+        return;
+      }
+      if (key.name === 'down') {
+        selectedIndex = (selectedIndex + 1) % items.length;
+        render();
+        return;
+      }
+      if (key.name === 'return' || key.name === 'enter') {
+        finish(items[selectedIndex]?.value);
+        return;
+      }
+      if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+        finish(undefined);
+        return;
+      }
+      if (key.name && /^[1-9]$/.test(key.name)) {
+        const index = Number(key.name) - 1;
+        if (index >= 0 && index < items.length) {
+          selectedIndex = index;
+          render();
+        }
+      }
+    };
+
+    emitKeypressEvents(process.stdin);
+    if (typeof process.stdin.setRawMode === 'function') {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+    process.stdin.on('keypress', onKeypress);
+    render();
+  });
+}
+
 async function confirm(message) {
   if (assumeYes) return true;
-  const rl = createInterface({ input, output });
-  try {
-    const answer = await rl.question(`${message} [y/N] `);
-    return answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes';
-  } finally {
-    rl.close();
-  }
+
+  const choice = await selectMenu(message, [
+    { label: '继续同步', value: true },
+    { label: '取消同步', value: false },
+  ], '请输入序号: ');
+
+  return Boolean(choice);
 }
 
 async function selectPackage() {
@@ -307,26 +414,19 @@ async function selectPackage() {
     return [pkg];
   }
 
-  console.log('请选择要同步的内容：');
-  syncPackages.forEach((pkg, index) => {
-    console.log(`  ${index + 1}. ${pkg.title} - ${pkg.description}`);
-  });
-  console.log(`  ${syncPackages.length + 1}. all - 全部`);
-  console.log('');
+  const choice = await selectMenu(
+    '请选择要同步的内容：',
+    [
+      ...syncPackages.map((pkg) => ({
+        label: `${pkg.title} - ${pkg.description}`,
+        value: [pkg],
+      })),
+      { label: 'all - 全部', value: syncPackages },
+    ],
+    '请输入序号: ',
+  );
 
-  const rl = createInterface({ input, output });
-  try {
-    const answer = await rl.question('请输入序号或名称: ');
-    const value = answer.trim();
-    if (value === 'all' || Number(value) === syncPackages.length + 1) return syncPackages;
-    const byName = syncPackages.find((item) => item.name === value);
-    if (byName) return [byName];
-    const byIndex = syncPackages[Number(value) - 1];
-    if (byIndex) return [byIndex];
-    throw new Error(`无效选择: ${value}`);
-  } finally {
-    rl.close();
-  }
+  return choice;
 }
 
 async function main() {
@@ -348,6 +448,10 @@ async function main() {
   const repoRoot = await ensureRepo();
   await maybeSelfUpdate(repoRoot);
   const packages = await selectPackage();
+  if (!packages) {
+    console.log('已取消同步。');
+    return;
+  }
 
   console.log('将全量覆盖同步：');
   for (const pkg of packages) {
