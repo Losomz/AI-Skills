@@ -7,7 +7,9 @@ Layered Git command for Pi.
 - `/git` - choose a Git operation from a menu.
 - `/git commit` - delegate the entire commit workflow to the default commit subagent (`General`) without inspecting status or diff in the main agent.
 - `/git commit <agent>` or `/git commit --agent <agent>` - use a specific subagent for the commit workflow.
-- `/git pull` - pull from the current branch with dirty-tree handling.
+- `/git commit ...额外要求` - 在不指定 agent 的情况下，把后面的内容作为本次特殊要求传给提交流程。
+- `/git commit <agent> ...额外要求` - 指定 subagent 的同时，附加本次特殊要求。
+- `/git pull` - pull from the current branch with dirty-tree handling。
 
 ## Design
 
@@ -33,8 +35,9 @@ Examples:
 
 ```text
 /git commit
-/git commit General
-/git commit --agent General
+/git commit 这次只提交配置调整
+/git commit General 这次提交前先确认 changelog 规则
+/git commit --agent General 这次提交只处理 blog 配置
 ```
 
 ### pull

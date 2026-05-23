@@ -8,6 +8,9 @@ Layered `/blog` command for running file-based project log workflows from Git hi
 - `/blog product` - run `workflows/product.md`.
 - `/blog tech` - run `workflows/tech.md`.
 - `/blog work` - run `workflows/work.md`.
+- `/blog product ...额外要求` - 生成产品日志时附加本次特殊要求。
+- `/blog tech ...额外要求` - 生成技术日志时附加本次特殊要求。
+- `/blog work ...额外要求` - 生成工作日志时附加本次特殊要求。
 
 Aliases are declared in each workflow file's frontmatter.
 
@@ -41,6 +44,7 @@ blog/
 5. Builds a `subagent` chain:
    - optional shared `common/pre-commit.md`
    - selected workflow body
+   - 用户额外要求会作为附加输入传给工作流
 6. Sends that chain prompt to the active Pi agent.
 
 All behavior differences are prompt-file polymorphism. To add a new workflow, add a new markdown file under `workflows/`; no TypeScript change should be needed.

@@ -14,31 +14,41 @@ const GIT_OPERATIONS = [
 	{ value: "pull", label: "pull", description: "Pull from remote repository" },
 ];
 
-function parseGitArgs(args: string): { operation: string; agent?: string } {
+function parseGitArgs(args: string, availableAgents: string[]): { operation: string; agent?: string; extraInstructions: string } {
 	const parts = args.trim().split(/\s+/).filter(Boolean);
 	const operation = (parts.shift() ?? "").toLowerCase();
-	if (!operation) return { operation: "" };
+	if (!operation) return { operation: "", extraInstructions: "" };
 
 	let agent: string | undefined;
-	for (let i = 0; i < parts.length; i++) {
-		const part = parts[i];
-		if (part === "--agent" || part === "-a") {
-			agent = parts[i + 1];
-			i++;
-			continue;
+	let extraParts: string[] = [];
+
+	if (operation === "commit") {
+		if (parts[0] === "--agent" || parts[0] === "-a") {
+			parts.shift();
+			agent = parts.shift();
+			extraParts = parts;
+		} else if (parts[0] && availableAgents.some((item) => item.toLowerCase() === parts[0].toLowerCase())) {
+			agent = parts.shift();
+			extraParts = parts;
+		} else {
+			extraParts = parts;
 		}
-		if (!agent) agent = part;
+	} else {
+		extraParts = parts;
 	}
 
-	return { operation, agent };
+	return { operation, agent, extraInstructions: extraParts.join(" ") };
 }
 
 function chooseCommitAgent(requestedAgent?: string): string {
 	return requestedAgent || DEFAULT_COMMIT_AGENT;
 }
 
-async function handleGitCommit(pi: ExtensionAPI, _ctx: ExtensionContext, requestedAgent?: string): Promise<void> {
+async function handleGitCommit(pi: ExtensionAPI, _ctx: ExtensionContext, requestedAgent?: string, extraInstructions = ""): Promise<void> {
 	const agentName = chooseCommitAgent(requestedAgent);
+	const extraBlock = extraInstructions.trim()
+		? `\n\n## 用户额外要求\n\n${extraInstructions.trim()}`
+		: "";
 
 	// Fixed delegation template only. The main agent should not inspect git state or diff,
 	// so commit details stay inside the subagent's isolated context.
@@ -70,7 +80,7 @@ async function handleGitCommit(pi: ExtensionAPI, _ctx: ExtensionContext, request
 ## 边界
 
 主 agent 不参与 git 检查、diff 分析、提交信息生成或执行。
-所有 git 操作都必须由你在子 agent 进程内完成。`;
+所有 git 操作都必须由你在子 agent 进程内完成。${extraBlock}`;
 
 	const contextMessage = `请立即调用 \`subagent\` 工具，把 Git 提交任务完整委派给指定子 agent：\`${agentName}\`。
 
@@ -220,7 +230,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (operation === "commit") {
-				await handleGitCommit(pi, ctx, commitAgent);
+				await handleGitCommit(pi, ctx, commitAgent, parsed.extraInstructions);
 				return;
 			}
 
