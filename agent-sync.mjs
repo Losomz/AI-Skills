@@ -19,7 +19,7 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const SELF_UPDATE_FLAG = '--skip-self-update';
 // Bump this when changing the sync script so older copies can self-upgrade safely.
-const SYNC_SCRIPT_VERSION = 2;
+const SYNC_SCRIPT_VERSION = 3;
 
 const rawArgs = process.argv.slice(2);
 const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
