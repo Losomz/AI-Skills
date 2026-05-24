@@ -85,7 +85,7 @@ configs/.opencode -> .opencode
 
 ## 同步策略
 
-同步脚本会先更新远程缓存，并在发现远程 `agent-sync.mjs` 版本号更高时自动覆盖当前脚本并重新执行。修改同步脚本后需要递增脚本内的 `SYNC_SCRIPT_VERSION`。
+同步脚本会先更新远程缓存，并在发现远程 `agent-sync.mjs` 版本号更高时自动覆盖当前脚本并重新执行。修改同步脚本后需要按 `x.y.z` 语义版本格式递增脚本内的 `SYNC_SCRIPT_VERSION`。
 
 同步时直接删除目标配置目录，再复制最新内容；不创建备份。
 

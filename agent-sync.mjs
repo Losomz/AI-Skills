@@ -18,8 +18,10 @@ const PROJECT_DIR = process.cwd();
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const SELF_UPDATE_FLAG = '--skip-self-update';
-// Bump this when changing the sync script so older copies can self-upgrade safely.
-const SYNC_SCRIPT_VERSION = 3;
+// Bump this using x.y.z semantic versioning when changing the sync script.
+const SYNC_SCRIPT_VERSION = '3.1.0';
+// Legacy marker for agent-sync.mjs <= 3 numeric self-updaters. Keep it above old numeric versions.
+// SYNC_SCRIPT_VERSION = 4
 
 const rawArgs = process.argv.slice(2);
 const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
@@ -158,13 +160,33 @@ async function filesEqual(a, b) {
   }
 }
 
+function parseSyncScriptVersion(value) {
+  const text = String(value).trim();
+  if (/^\d+$/.test(text)) return [0, 0, Number(text)];
+  if (!/^\d+\.\d+\.\d+$/.test(text)) return [0, 0, 0];
+  return text.split('.').map((part) => Number(part));
+}
+
+function compareSyncScriptVersions(left, right) {
+  const leftParts = parseSyncScriptVersion(left);
+  const rightParts = parseSyncScriptVersion(right);
+  for (let index = 0; index < 3; index += 1) {
+    const diff = leftParts[index] - rightParts[index];
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
 async function getSyncScriptVersion(scriptPath) {
   try {
     const content = await fs.readFile(scriptPath, 'utf-8');
-    const match = content.match(/SYNC_SCRIPT_VERSION\s*=\s*(\d+)/);
-    return match ? Number(match[1]) : 0;
+    const semverMatch = content.match(/SYNC_SCRIPT_VERSION\s*=\s*['"`](\d+\.\d+\.\d+)['"`]/);
+    if (semverMatch) return semverMatch[1];
+
+    const legacyMatch = content.match(/SYNC_SCRIPT_VERSION\s*=\s*(\d+)/);
+    return legacyMatch ? legacyMatch[1] : '0.0.0';
   } catch {
-    return 0;
+    return '0.0.0';
   }
 }
 
@@ -177,7 +199,7 @@ async function maybeSelfUpdate(repoRoot) {
   if (await filesEqual(sourceScript, SCRIPT_PATH)) return false;
 
   const sourceVersion = await getSyncScriptVersion(sourceScript);
-  if (sourceVersion <= SYNC_SCRIPT_VERSION) return false;
+  if (compareSyncScriptVersions(sourceVersion, SYNC_SCRIPT_VERSION) <= 0) return false;
 
   console.log(`检测到同步脚本有更新（v${SYNC_SCRIPT_VERSION} -> v${sourceVersion}），正在自我升级...`);
   await fs.copyFile(sourceScript, SCRIPT_PATH);
