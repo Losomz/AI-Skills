@@ -126,6 +126,14 @@ function findWorkflow(workflows: BlogWorkflow[], value: string): BlogWorkflow | 
 	});
 }
 
+function formatWorkflowOption(workflow: BlogWorkflow): string {
+	return `${workflow.name} — ${workflow.description}`;
+}
+
+function findWorkflowByOption(workflows: BlogWorkflow[], option: string): BlogWorkflow | undefined {
+	return workflows.find((workflow) => option === workflow.name || option === formatWorkflowOption(workflow));
+}
+
 function parseArgs(args: string, workflows: BlogWorkflow[]): { workflow?: BlogWorkflow; extraInstructions: string; unknown?: string } {
 	const trimmed = args.trim();
 	if (!trimmed) return { extraInstructions: "" };
@@ -166,15 +174,18 @@ async function ensureGitRepository(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 	return true;
 }
 
-function buildWorkflowTask(workflow: BlogWorkflow, extraInstructions: string, includePrevious: boolean): string {
+function buildWorkflowTask(workflow: BlogWorkflow, coreStandard: string, includePrevious: boolean): string {
 	const previousBlock = includePrevious
 		? `## 上一阶段结果\n\n{previous}\n\n请先阅读上一阶段结果。如果前置提交阶段明确表示提交失败、推送失败、发现敏感文件或工作区不安全，立即停止并说明原因，不要继续生成日志。\n\n`
 		: "";
+	const coreStandardBlock = coreStandard.trim()
+		? `## 用户核心标准\n\n请以以下内容作为本次日志筛选、摘要角度、写法和内容取舍的核心标准：\n\n${coreStandard.trim()}`
+		: "## 用户核心标准\n\n（无，按工作流默认规则执行）";
 
-	return `${previousBlock}${workflow.body}\n\n## 用户额外要求\n\n${extraInstructions.trim() ? extraInstructions.trim() : "（无）"}`;
+	return `${previousBlock}${workflow.body}\n\n${coreStandardBlock}`;
 }
 
-function buildWorkflowPrompt(workflow: BlogWorkflow, extraInstructions: string): string | null {
+function buildWorkflowPrompt(workflow: BlogWorkflow, coreStandard: string): string | null {
 	const chain: Array<{ agent: string; task: string }> = [];
 
 	if (workflow.preCommit) {
@@ -185,7 +196,7 @@ function buildWorkflowPrompt(workflow: BlogWorkflow, extraInstructions: string):
 
 	chain.push({
 		agent: workflow.agent,
-		task: buildWorkflowTask(workflow, extraInstructions, workflow.preCommit),
+		task: buildWorkflowTask(workflow, coreStandard, workflow.preCommit),
 	});
 
 	return `请立即调用 \`subagent\` 工具，以 chain 模式执行博客/日志工作流。不要先自行检查 git 状态，不要由主 agent 直接读 diff、写日志、提交、打 tag 或 push。\n\n工作流来自文件：\`${path.relative(extensionDir(), workflow.filePath).replace(/\\/g, "/")}\`\n\n参数：\n\n\`\`\`json\n${JSON.stringify(
@@ -199,11 +210,30 @@ function buildWorkflowPrompt(workflow: BlogWorkflow, extraInstructions: string):
 	)}\n\`\`\`\n\n子 agent 返回后，请用中文简要总结结果。`;
 }
 
+async function promptBlogCoreStandard(ctx: ExtensionContext, extraInstructions: string): Promise<string | undefined> {
+	const trimmed = extraInstructions.trim();
+	if (trimmed) return trimmed;
+	if (!ctx.hasUI) return "";
+
+	const input = await ctx.ui.input(
+		"本次日志生成的核心标准（可留空）",
+		"例如：重点写架构调整、只写用户可见变化、忽略临时提交等",
+	);
+	if (input === undefined) {
+		ctx.ui.notify("Blog workflow cancelled", "info");
+		return undefined;
+	}
+	return input.trim();
+}
+
 async function handleBlogWorkflow(pi: ExtensionAPI, ctx: ExtensionContext, workflow: BlogWorkflow, extraInstructions: string): Promise<void> {
 	const ok = await ensureGitRepository(pi, ctx);
 	if (!ok) return;
 
-	const prompt = buildWorkflowPrompt(workflow, extraInstructions);
+	const coreStandard = await promptBlogCoreStandard(ctx, extraInstructions);
+	if (coreStandard === undefined) return;
+
+	const prompt = buildWorkflowPrompt(workflow, coreStandard);
 	if (!prompt) {
 		ctx.ui.notify("Missing blog common/pre-commit.md", "error");
 		return;
@@ -247,13 +277,13 @@ export default function (pi: ExtensionAPI) {
 			if (!workflow) {
 				const choice = await ctx.ui.select(
 					"Blog workflow",
-					workflows.map((item) => item.name),
+					workflows.map((item) => formatWorkflowOption(item)),
 				);
 				if (!choice) {
 					ctx.ui.notify("Blog workflow cancelled", "info");
 					return;
 				}
-				workflow = findWorkflow(workflows, choice);
+				workflow = findWorkflowByOption(workflows, choice);
 			}
 
 			if (!workflow) {

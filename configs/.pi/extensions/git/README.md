@@ -4,11 +4,11 @@ Layered Git command for Pi.
 
 ## Commands
 
-- `/git` - choose a Git operation from a menu.
-- `/git commit` - delegate the entire commit workflow to the default commit subagent (`General`) without inspecting status or diff in the main agent.
+- `/git` - choose a Git operation from a menu with descriptions.
+- `/git commit` - delegate the entire commit workflow to the default commit subagent (`General`) without inspecting status or diff in the main agent; prompts for an optional core standard before delegation.
 - `/git commit <agent>` or `/git commit --agent <agent>` - use a specific subagent for the commit workflow.
-- `/git commit ...额外要求` - 在不指定 agent 的情况下，把后面的内容作为本次特殊要求传给提交流程。
-- `/git commit <agent> ...额外要求` - 指定 subagent 的同时，附加本次特殊要求。
+- `/git commit ...核心要求` - 在不指定 agent 的情况下，把后面的内容作为本次提交的核心标准传给提交流程，不再弹输入框。
+- `/git commit <agent> ...核心要求` - 指定 subagent 的同时，附加本次提交核心标准，不再弹输入框。
 - `/git pull` - pull from the current branch with dirty-tree handling。
 
 ## Design
@@ -20,6 +20,8 @@ This extension keeps Git operations under a single top-level `/git` command so s
 ### commit
 
 Sends a fixed delegation template to the main agent that instructs it to immediately call the `subagent` tool.
+
+If no inline core requirement is provided, `/git commit` first opens an optional input box. Leaving it empty uses the default workflow; entering text makes that content the core standard for change selection, analysis, and commit message generation.
 
 The main agent does **not** inspect git state, read diffs, generate commit messages, or run git write commands. The selected subagent performs the entire workflow:
 

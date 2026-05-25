@@ -45,7 +45,7 @@ preCommitAgent: General
     ```bash
     git push
     ```
-    只有当用户额外要求明确写了“不推送 / no-push / 不要 push”时，才跳过 push。
+    只有当用户核心标准/额外要求明确写了“不推送 / no-push / 不要 push”时，才跳过 push。
 
 ## 写作目标
 

@@ -10,11 +10,20 @@ import { discoverAgents } from "../subagent/agents.js";
 const DEFAULT_COMMIT_AGENT = "General";
 
 const GIT_OPERATIONS = [
-	{ value: "commit", label: "commit", description: "Commit and push changes" },
-	{ value: "pull", label: "pull", description: "Pull from remote repository" },
+	{ value: "commit", label: "commit", description: "委派子 agent 完整完成提交和推送" },
+	{ value: "pull", label: "pull", description: "拉取远端变更并处理未提交改动" },
 ];
 
-function parseGitArgs(args: string, availableAgents: string[]): { operation: string; agent?: string; extraInstructions: string } {
+function formatOperationOption(operation: (typeof GIT_OPERATIONS)[number]): string {
+	return `${operation.value} — ${operation.description}`;
+}
+
+function parseOperationChoice(choice: string): string {
+	const operation = GIT_OPERATIONS.find((item) => choice === item.value || choice === formatOperationOption(item));
+	return operation?.value ?? choice;
+}
+
+function parseGitArgs(args: string, availableAgents: string[] = []): { operation: string; agent?: string; extraInstructions: string } {
 	const parts = args.trim().split(/\s+/).filter(Boolean);
 	const operation = (parts.shift() ?? "").toLowerCase();
 	if (!operation) return { operation: "", extraInstructions: "" };
@@ -44,10 +53,29 @@ function chooseCommitAgent(requestedAgent?: string): string {
 	return requestedAgent || DEFAULT_COMMIT_AGENT;
 }
 
-async function handleGitCommit(pi: ExtensionAPI, _ctx: ExtensionContext, requestedAgent?: string, extraInstructions = ""): Promise<void> {
+async function promptCommitCoreStandard(ctx: ExtensionContext, extraInstructions: string): Promise<string | undefined> {
+	const trimmed = extraInstructions.trim();
+	if (trimmed) return trimmed;
+	if (!ctx.hasUI) return "";
+
+	const input = await ctx.ui.input(
+		"本次提交的核心要求（可留空）",
+		"例如：只提交 blog 配置、提交信息强调修复菜单描述等",
+	);
+	if (input === undefined) {
+		ctx.ui.notify("Git commit cancelled", "info");
+		return undefined;
+	}
+	return input.trim();
+}
+
+async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext, requestedAgent?: string, extraInstructions = ""): Promise<void> {
 	const agentName = chooseCommitAgent(requestedAgent);
-	const extraBlock = extraInstructions.trim()
-		? `\n\n## 用户额外要求\n\n${extraInstructions.trim()}`
+	const coreStandard = await promptCommitCoreStandard(ctx, extraInstructions);
+	if (coreStandard === undefined) return;
+
+	const extraBlock = coreStandard
+		? `\n\n## 用户核心标准\n\n请以以下内容作为本次提交分析、改动取舍和提交信息生成的核心标准：\n\n${coreStandard}`
 		: "";
 
 	// Fixed delegation template only. The main agent should not inspect git state or diff,
@@ -198,7 +226,7 @@ export default function (pi: ExtensionAPI) {
 				const items = discovery.agents.map((agent) => ({
 					value: `commit ${agent.name}`,
 					label: agent.name,
-					description: `Use ${agent.name} subagent for commit`,
+					description: `使用 ${agent.name} 子 agent 执行提交`,
 				}));
 				const filtered = items.filter((item) => item.label.toLowerCase().startsWith(agentPrefix));
 				return filtered.length > 0 ? filtered : null;
@@ -213,20 +241,21 @@ export default function (pi: ExtensionAPI) {
 			return filtered.length > 0 ? filtered : null;
 		},
 		handler: async (args, ctx) => {
-			const parsed = parseGitArgs(args);
+			const availableAgents = discoverAgents(process.cwd(), "project").agents.map((agent) => agent.name);
+			const parsed = parseGitArgs(args, availableAgents);
 			let operation = parsed.operation;
-			let commitAgent = parsed.agent;
+			const commitAgent = parsed.agent;
 
 			if (!operation) {
 				const choice = await ctx.ui.select(
 					"Git operation",
-					GIT_OPERATIONS.map((item) => item.value),
+					GIT_OPERATIONS.map((item) => formatOperationOption(item)),
 				);
 				if (!choice) {
 					ctx.ui.notify("Git operation cancelled", "info");
 					return;
 				}
-				operation = choice;
+				operation = parseOperationChoice(choice);
 			}
 
 			if (operation === "commit") {

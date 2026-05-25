@@ -100,7 +100,7 @@ export YUNYI_API_KEY="your-actual-key"
 
 `extensions/blog/` 提供单入口 `/blog` 命令，用来从 Git 历史生成不同受众的项目日志，避免占用 Pi 内置 `/changelog`。
 
-`/blog` 现在走文件化工作流：`index.ts` 只负责扫描 `extensions/blog/workflows/*.md`、展示可选项，并拉起 `subagent` chain；具体写给谁、写哪个文件、是否提交、是否打 tag、是否 push 都由对应 Markdown workflow 的提示词决定。
+`/blog` 现在走文件化工作流：`index.ts` 只负责扫描 `extensions/blog/workflows/*.md`、展示带描述的可选项，并拉起 `subagent` chain；具体写给谁、写哪个文件、是否提交、是否打 tag、是否 push 都由对应 Markdown workflow 的提示词决定。未在命令后直接提供核心标准时，会弹出可留空输入框；填写内容会作为日志筛选、摘要角度、写法和内容取舍的核心标准。
 
 目录结构：
 
@@ -116,10 +116,11 @@ extensions/blog/
 可用命令来自 workflow 文件：
 
 ```text
-/blog             # 弹出菜单选择 workflows/*.md
-/blog product     # 运行 workflows/product.md
-/blog tech        # 运行 workflows/tech.md
-/blog work        # 运行 workflows/work.md
+/blog             # 弹出带描述菜单选择 workflows/*.md，并询问可选核心标准
+/blog product     # 运行 workflows/product.md；未附加文字时询问可选核心标准
+/blog tech        # 运行 workflows/tech.md；未附加文字时询问可选核心标准
+/blog work        # 运行 workflows/work.md；未附加文字时询问可选核心标准
+/blog tech 重点写架构调整  # 直接把后面的文字作为核心标准
 ```
 
 新增日志类型时只需添加新的 `workflows/<name>.md`，不需要改 TypeScript。

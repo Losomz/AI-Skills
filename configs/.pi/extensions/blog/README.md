@@ -4,15 +4,17 @@ Layered `/blog` command for running file-based project log workflows from Git hi
 
 ## Commands
 
-- `/blog` - choose a blog/log workflow from discovered files.
-- `/blog product` - run `workflows/product.md`.
-- `/blog tech` - run `workflows/tech.md`.
-- `/blog work` - run `workflows/work.md`.
-- `/blog product ...额外要求` - 生成产品日志时附加本次特殊要求。
-- `/blog tech ...额外要求` - 生成技术日志时附加本次特殊要求。
-- `/blog work ...额外要求` - 生成工作日志时附加本次特殊要求。
+- `/blog` - choose a blog/log workflow from discovered files; menu entries include workflow descriptions.
+- `/blog product` - run `workflows/product.md`（面向消费者/玩家/用户的产品级更新日志；默认提交、打版本标签并推送）。
+- `/blog tech` - run `workflows/tech.md`（面向技术人员的技术变更日志；默认提交、打版本标签并推送）。
+- `/blog work` - run `workflows/work.md`（面向公司内部的工作日志；默认提交并推送，不打版本标签）。
+- `/blog product ...核心标准` - 生成产品日志时把后面的内容作为核心标准，不再弹输入框。
+- `/blog tech ...核心标准` - 生成技术日志时把后面的内容作为核心标准，不再弹输入框。
+- `/blog work ...核心标准` - 生成工作日志时把后面的内容作为核心标准，不再弹输入框。
 
 Aliases are declared in each workflow file's frontmatter.
+
+When no inline core standard is provided, the selected workflow opens an optional input box. Leaving it empty uses the workflow defaults; entering text makes that content the core standard for log filtering, summary angle, writing style, and content selection.
 
 ## Structure
 
@@ -44,7 +46,7 @@ blog/
 5. Builds a `subagent` chain:
    - optional shared `common/pre-commit.md`
    - selected workflow body
-   - 用户额外要求会作为附加输入传给工作流
+   - 用户核心标准会作为附加输入传给工作流
 6. Sends that chain prompt to the active Pi agent.
 
 All behavior differences are prompt-file polymorphism. To add a new workflow, add a new markdown file under `workflows/`; no TypeScript change should be needed.

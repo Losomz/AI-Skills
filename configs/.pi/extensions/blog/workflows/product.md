@@ -50,7 +50,7 @@ preCommitAgent: General
     git push
     git push origin <version>
     ```
-    只有当用户额外要求明确写了“不推送 / no-push / 不要 push”时，才跳过 push。
+    只有当用户核心标准/额外要求明确写了“不推送 / no-push / 不要 push”时，才跳过 push。
 
 ## 版本号规则
 
@@ -68,7 +68,7 @@ preCommitAgent: General
    - 单点功能、局部优化、修复、配置调整、数值调整、文案调整、工程化改动，一律递增 PATCH。
    - 如果无法明确判断是否属于 MINOR，一律递增 PATCH。
    - 0.x 阶段不要自动递增 MAJOR。
-4. 如果用户额外要求中指定具体版本号，以用户指定为准；这不是判断 MINOR 的依据，只是尊重显式版本号。
+4. 如果用户核心标准/额外要求中指定具体版本号，以用户指定为准；这不是判断 MINOR 的依据，只是尊重显式版本号。
 5. 创建 tag 前必须检查 `git tag -l <version>`，如果 tag 已存在，停止并说明原因。
 
 ## 写作目标
