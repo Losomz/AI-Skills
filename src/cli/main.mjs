@@ -4,8 +4,9 @@ import process from 'node:process';
 import { buildSyncCatalog, flattenSyncCatalog, resolvePackageSelection } from '../sync/catalog.mjs';
 import { syncTarget } from '../sync/sync-target.mjs';
 import { autoCommitAndPush } from '../git/auto-commit.mjs';
-import { confirm, selectMenu } from './menu.mjs';
+import { confirm, isInteractiveTerminal, selectMenu } from './menu.mjs';
 import { printUsage } from './usage.mjs';
+import { selectSyncPlan } from './sync-wizard.mjs';
 
 const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'git@github.com:Losomz/AgentFramework.git';
 const DEFAULT_REF = process.env.AGENTFRAMEWORK_REF || 'main';
@@ -21,8 +22,7 @@ function parseArgs(rawArgs) {
   };
 }
 
-async function selectPackage(repoRoot, selectedPackageArg) {
-  const catalog = await buildSyncCatalog(repoRoot);
+async function selectPackage(catalog, selectedPackageArg) {
   if (catalog.length === 0) {
     throw new Error('未发现可同步内容。');
   }
@@ -81,18 +81,41 @@ export async function main(options = {}) {
     return;
   }
 
-  console.log('====================================');
-  console.log('       AgentFramework Sync');
-  console.log('====================================');
-  console.log(`目标项目: ${projectDir}`);
-  console.log(`来源模式: ${sourceMode}`);
-  console.log(`同步源: ${repoRoot}`);
-  console.log('');
+  const catalog = await buildSyncCatalog(repoRoot);
+  if (catalog.length === 0) {
+    throw new Error('未发现可同步内容。');
+  }
 
-  const packages = await selectPackage(repoRoot, selectedPackageArg);
-  if (!packages) {
-    console.log('已取消同步。');
-    return;
+  const useWizard = !selectedPackageArg && isInteractiveTerminal();
+  let packages;
+  let confirmedByWizard = false;
+
+  if (useWizard) {
+    const selection = await selectSyncPlan({
+      catalog,
+      context: { projectDir, sourceMode, repoRoot },
+      assumeYes,
+    });
+    if (!selection) {
+      console.log('已取消同步。');
+      return;
+    }
+    packages = selection.packages;
+    confirmedByWizard = selection.confirmed;
+  } else {
+    console.log('====================================');
+    console.log('       AgentFramework Sync');
+    console.log('====================================');
+    console.log(`目标项目: ${projectDir}`);
+    console.log(`来源模式: ${sourceMode}`);
+    console.log(`同步源: ${repoRoot}`);
+    console.log('');
+
+    packages = await selectPackage(catalog, selectedPackageArg);
+    if (!packages) {
+      console.log('已取消同步。');
+      return;
+    }
   }
 
   console.log('将全量覆盖同步以下文件或目录：');
@@ -104,7 +127,7 @@ export async function main(options = {}) {
   }
   console.log('');
 
-  if (!await confirm('确认继续同步并删除/覆盖目标文件或目录吗？', assumeYes)) {
+  if (!confirmedByWizard && !await confirm('确认继续同步并删除/覆盖目标文件或目录吗？', assumeYes)) {
     console.log('已取消同步。');
     return;
   }

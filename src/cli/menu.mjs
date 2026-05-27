@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import process, { stdout as output } from 'node:process';
 import { emitKeypressEvents } from 'node:readline';
 
-function isInteractiveTerminal() {
+export function isInteractiveTerminal() {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
