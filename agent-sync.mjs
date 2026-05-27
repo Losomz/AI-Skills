@@ -19,7 +19,7 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const SELF_UPDATE_FLAG = '--skip-self-update';
 // Bump this using x.y.z semantic versioning when changing the sync script.
-const SYNC_SCRIPT_VERSION = '3.1.0';
+const SYNC_SCRIPT_VERSION = '3.2.0';
 // Legacy marker for agent-sync.mjs <= 3 numeric self-updaters. Keep it above old numeric versions.
 // SYNC_SCRIPT_VERSION = 4
 
@@ -31,31 +31,158 @@ const useLocalSource = flags.has('--local');
 const skipSelfUpdate = flags.has(SELF_UPDATE_FLAG);
 const skipAutoCommit = flags.has('--no-commit') || flags.has('--no-push');
 
-const syncPackages = [
-  {
-    name: 'pi',
-    title: 'Pi 配置',
-    description: '全量覆盖同步 Pi 配置（.pi）',
+const ROOT_SYNC_DIR_EXCLUDES = new Set([
+  '.git',
+  '.pi',
+  '.opencode',
+  '.agentframework',
+  '.tmp-agentframework',
+  '.tmp-bootstrap-src',
+  'node_modules',
+]);
+const CHILD_SYNC_ENTRY_EXCLUDES = new Set(['node_modules', 'README.md']);
+const CONFIG_TITLES = new Map([
+  ['.pi', 'Pi 配置'],
+  ['.opencode', 'OpenCode 配置'],
+]);
+const CONFIG_AFTER_MESSAGES = new Map([
+  ['.pi', '请在 Pi 中执行 /reload 重新加载扩展。'],
+]);
+
+function normalizePackageArg(value) {
+  return String(value || '').trim().replaceAll('\\', '/').replace(/\/+$/, '');
+}
+
+function stripLeadingDot(value) {
+  return value.replace(/^\.+/, '');
+}
+
+function trimMarkdownExtension(value) {
+  return value.replace(/\.md$/i, '');
+}
+
+function isIgnoredRootDir(dirent) {
+  return !dirent.isDirectory() || dirent.name.startsWith('.') || ROOT_SYNC_DIR_EXCLUDES.has(dirent.name);
+}
+
+function isIgnoredChildEntry(categoryName, dirent) {
+  if (CHILD_SYNC_ENTRY_EXCLUDES.has(dirent.name)) return true;
+  if (categoryName !== 'configs' && dirent.name.startsWith('.')) return true;
+  return false;
+}
+
+function getCategoryTitle(categoryName) {
+  const titles = new Map([
+    ['agents', 'Agents 模板'],
+    ['configs', '工具配置'],
+    ['docs', '文档'],
+  ]);
+  return titles.get(categoryName) || categoryName;
+}
+
+function getTargetPathForEntry(categoryName, entryName) {
+  if (categoryName === 'configs') return entryName;
+  return `${categoryName}/${entryName}`;
+}
+
+function getPackageTitle(categoryName, entryName) {
+  if (categoryName === 'configs') return CONFIG_TITLES.get(entryName) || `${stripLeadingDot(entryName)} 配置`;
+  return `${getCategoryTitle(categoryName)} / ${entryName}`;
+}
+
+function getPackageDescription(categoryName, entryName, targetPath) {
+  if (categoryName === 'configs') return `同步 ${entryName} 到 ${targetPath}`;
+  return `同步 ${categoryName}/${entryName} 到 ${targetPath}`;
+}
+
+function getCommitScopeForEntry(categoryName, entryName) {
+  if (categoryName === 'configs') return stripLeadingDot(entryName);
+  return trimMarkdownExtension(entryName);
+}
+
+function createSyncPackage(categoryName, dirent) {
+  const sourcePath = `${categoryName}/${dirent.name}`;
+  const targetPath = getTargetPathForEntry(categoryName, dirent.name);
+  const baseName = trimMarkdownExtension(dirent.name);
+  const aliases = new Set([
+    sourcePath,
+    targetPath,
+    dirent.name,
+    baseName,
+  ]);
+
+  if (categoryName === 'configs') {
+    aliases.add(stripLeadingDot(dirent.name));
+    aliases.add(`configs/${stripLeadingDot(dirent.name)}`);
+  }
+
+  return {
+    name: categoryName === 'configs' ? stripLeadingDot(dirent.name) : baseName,
+    key: sourcePath,
+    category: categoryName,
+    entryName: dirent.name,
+    aliases: [...aliases].map(normalizePackageArg),
+    title: getPackageTitle(categoryName, dirent.name),
+    description: getPackageDescription(categoryName, dirent.name, targetPath),
+    commitScope: getCommitScopeForEntry(categoryName, dirent.name),
     targets: [
       {
-        from: 'configs/.pi',
-        to: '.pi',
-        after: '请在 Pi 中执行 /reload 重新加载扩展。',
+        from: sourcePath,
+        to: targetPath,
+        after: CONFIG_AFTER_MESSAGES.get(dirent.name),
       },
     ],
-  },
-  {
-    name: 'opencode',
-    title: 'OpenCode 配置',
-    description: '全量覆盖同步 OpenCode 配置（.opencode）',
-    targets: [
-      { from: 'configs/.opencode', to: '.opencode' },
-    ],
-  },
-];
+  };
+}
+
+async function buildSyncCatalog(repoRoot) {
+  const rootEntries = await fs.readdir(repoRoot, { withFileTypes: true });
+  const categories = [];
+
+  for (const dirent of rootEntries) {
+    if (isIgnoredRootDir(dirent)) continue;
+
+    const categoryName = dirent.name;
+    const categoryPath = path.join(repoRoot, categoryName);
+    const children = await fs.readdir(categoryPath, { withFileTypes: true });
+    const items = children
+      .filter((child) => !isIgnoredChildEntry(categoryName, child))
+      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+      .map((child) => createSyncPackage(categoryName, child));
+
+    if (items.length === 0) continue;
+    categories.push({
+      name: categoryName,
+      title: getCategoryTitle(categoryName),
+      items,
+    });
+  }
+
+  return categories.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+}
+
+function flattenSyncCatalog(catalog) {
+  return catalog.flatMap((category) => category.items);
+}
+
+function resolvePackageSelection(catalog, arg) {
+  const normalizedArg = normalizePackageArg(arg);
+  if (!normalizedArg || normalizedArg === 'all') return flattenSyncCatalog(catalog);
+
+  const category = catalog.find((item) => item.name === normalizedArg);
+  if (category) return category.items;
+
+  const matches = flattenSyncCatalog(catalog).filter((item) => item.aliases.includes(normalizedArg));
+  if (matches.length === 1) return matches;
+  if (matches.length > 1) {
+    throw new Error(`同步内容名称不唯一: ${arg}，请使用完整路径，例如 ${matches[0].key}`);
+  }
+
+  throw new Error(`未知同步内容: ${arg}`);
+}
 
 function printUsage() {
-  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                # 进入菜单，方向键/Enter 选择同步内容\n  node agent-sync.mjs pi             # 全量覆盖同步 Pi 配置\n  node agent-sync.mjs opencode       # 全量覆盖同步 OpenCode 配置\n  node agent-sync.mjs all --yes      # 同步全部且不询问确认\n  node agent-sync.mjs pi --local     # 开发期：从当前仓库 configs/ 同步，不拉远程、不自我升级\n  node agent-sync.mjs pi --no-commit # 只同步，不自动提交和推送\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步时会删除目标目录再复制配置源，不创建备份。\n  - 选择内容和确认步骤优先用菜单按钮式交互；没有 TTY 时才退回文本输入。\n  - 同步完成后会自动提交并推送同步产生的 Git 改动，提交信息形如：✨ feat(pi): 工具升级。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
+  console.log(`AgentFramework Sync\n\nUsage:\n  node agent-sync.mjs                         # 二级菜单：先选一级文件夹，再选具体内容\n  node agent-sync.mjs configs/.pi             # 同步指定内容\n  node agent-sync.mjs agents/godot_sumeru.md  # 同步指定 agent 模板\n  node agent-sync.mjs configs                 # 同步某个一级文件夹下全部内容\n  node agent-sync.mjs all --yes               # 同步全部且不询问确认\n\n兼容旧用法:\n  node agent-sync.mjs pi\n  node agent-sync.mjs opencode\n\n常用选项:\n  node agent-sync.mjs pi --local --yes        # 开发期：从当前仓库同步，不拉远程、不自我升级\n  node agent-sync.mjs pi --no-commit          # 只同步，不自动提交和推送\n\nBehavior:\n  - 默认先更新 git cache，并在发现 agent-sync.mjs 有更新时自我升级后重新执行。\n  - 同步源来自仓库根目录的一级文件夹，例如 agents/、configs/、docs/。\n  - 交互选择时先选择一级文件夹，再选择该文件夹下的具体文件或目录。\n  - configs/ 是特殊配置源：configs/.pi -> .pi，configs/.opencode -> .opencode。\n  - 其他一级文件夹默认保留路径同步，例如 agents/godot_sumeru.md -> agents/godot_sumeru.md。\n  - 同步时会删除目标文件或目录再复制配置源，不创建备份。\n  - 选择内容和确认步骤优先用菜单按钮式交互；没有 TTY 时才退回文本输入。\n  - 同步完成后会自动提交并推送同步产生的 Git 改动，提交信息形如：✨ feat(pi): 工具升级。\n\nEnvironment:\n  AGENTFRAMEWORK_REPO_URL=${DEFAULT_REPO_URL}\n  AGENTFRAMEWORK_REF=${DEFAULT_REF}\n  AGENTFRAMEWORK_HOME=${CACHE_ROOT}\n`);
 }
 
 function run(command, args, options = {}) {
@@ -224,11 +351,15 @@ async function syncTarget(repoRoot, target) {
     throw new Error(`同步源不存在: ${sourcePath}`);
   }
 
+  if (normalizePathForCompare(sourcePath) === normalizePathForCompare(targetPath)) {
+    return { sourcePath, targetPath, skipped: true };
+  }
+
   await fs.rm(targetPath, { recursive: true, force: true });
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
 
-  return { sourcePath, targetPath };
+  return { sourcePath, targetPath, skipped: false };
 }
 
 function toGitPath(value) {
@@ -242,7 +373,11 @@ function relativePathInsideProject(targetPath) {
 }
 
 function getCommitScope(packages) {
-  if (packages.length === 1) return packages[0].name;
+  if (packages.length === 1) return packages[0].commitScope || packages[0].name;
+
+  const categories = new Set(packages.map((pkg) => pkg.category));
+  if (categories.size === 1) return [...categories][0];
+
   return 'tools';
 }
 
@@ -336,7 +471,7 @@ async function selectMenu(message, items, fallbackPrompt) {
         return items[byNumber - 1].value;
       }
 
-      const byLabel = items.find((item) => item.label === value || item.value === value);
+      const byLabel = items.find((item) => item.label === value || item.key === value || item.keys?.includes(value) || item.value === value);
       return byLabel?.value;
     } finally {
       rl.close();
@@ -426,29 +561,47 @@ async function confirm(message) {
   return Boolean(choice);
 }
 
-async function selectPackage() {
-  if (selectedPackageArg) {
-    if (selectedPackageArg === 'all') return syncPackages;
-    const pkg = syncPackages.find((item) => item.name === selectedPackageArg);
-    if (!pkg) {
-      throw new Error(`未知同步包: ${selectedPackageArg}`);
-    }
-    return [pkg];
+async function selectPackage(repoRoot) {
+  const catalog = await buildSyncCatalog(repoRoot);
+  if (catalog.length === 0) {
+    throw new Error('未发现可同步内容。');
   }
 
-  const choice = await selectMenu(
-    '请选择要同步的内容：',
+  if (selectedPackageArg) {
+    return resolvePackageSelection(catalog, selectedPackageArg);
+  }
+
+  const categoryChoice = await selectMenu(
+    '请选择一级文件夹：',
     [
-      ...syncPackages.map((pkg) => ({
-        label: `${pkg.title} - ${pkg.description}`,
-        value: [pkg],
+      ...catalog.map((category) => ({
+        key: category.name,
+        label: `${category.name}/ - ${category.title}（${category.items.length} 项）`,
+        value: category,
       })),
-      { label: 'all - 全部', value: syncPackages },
+      { key: 'all', label: 'all - 全部一级文件夹', value: 'all' },
     ],
-    '请输入序号: ',
+    '请输入序号或文件夹名: ',
   );
 
-  return choice;
+  if (!categoryChoice) return undefined;
+  if (categoryChoice === 'all') return flattenSyncCatalog(catalog);
+
+  const contentChoice = await selectMenu(
+    `请选择 ${categoryChoice.name}/ 下要同步的内容：`,
+    [
+      ...categoryChoice.items.map((pkg) => ({
+        key: pkg.entryName,
+        keys: [pkg.key, pkg.name],
+        label: `${pkg.entryName} - ${pkg.description}`,
+        value: [pkg],
+      })),
+      { key: 'all', keys: [`${categoryChoice.name}/all`], label: `all - ${categoryChoice.name}/ 下全部内容`, value: categoryChoice.items },
+    ],
+    '请输入序号或内容名: ',
+  );
+
+  return contentChoice;
 }
 
 async function main() {
@@ -469,13 +622,13 @@ async function main() {
 
   const repoRoot = await ensureRepo();
   await maybeSelfUpdate(repoRoot);
-  const packages = await selectPackage();
+  const packages = await selectPackage(repoRoot);
   if (!packages) {
     console.log('已取消同步。');
     return;
   }
 
-  console.log('将全量覆盖同步：');
+  console.log('将全量覆盖同步以下文件或目录：');
   for (const pkg of packages) {
     console.log(`- ${pkg.title}`);
     for (const target of pkg.targets) {
@@ -484,7 +637,7 @@ async function main() {
   }
   console.log('');
 
-  if (!await confirm('确认继续同步并删除/覆盖目标目录吗？')) {
+  if (!await confirm('确认继续同步并删除/覆盖目标文件或目录吗？')) {
     console.log('已取消同步。');
     return;
   }
@@ -495,7 +648,11 @@ async function main() {
     for (const target of pkg.targets) {
       const synced = await syncTarget(repoRoot, target);
       syncedTargets.push(synced);
-      console.log(`  ✓ 已同步: ${target.from} -> ${target.to}`);
+      if (synced.skipped) {
+        console.log(`  - 已跳过（源和目标相同）: ${target.from} -> ${target.to}`);
+      } else {
+        console.log(`  ✓ 已同步: ${target.from} -> ${target.to}`);
+      }
       if (target.after) console.log(`  提示: ${target.after}`);
     }
   }
