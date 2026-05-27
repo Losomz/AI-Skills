@@ -2,14 +2,19 @@
 
 Lightweight bundled subagents for Pi.
 
-## Commands
+## Shortcuts
 
-- `/agents` - choose a bundled agent, enter a task, and run it.
-- `/agents General <task>` - run the General agent directly.
-- `/agents Explore <task>` - run the Explore agent directly.
-- `/agents Scout <task>` - run the Scout agent directly.
+Use `#AgentName` in the editor to quickly delegate to bundled agents:
 
-Agent names are matched case-insensitively.
+```text
+#Explore 查找同步逻辑
+#Explore 查问题 > #General 根据上一步结果修复
+#Explore 查本地逻辑 | #Scout 查上游实现
+```
+
+- `>` runs agents sequentially with `{previous}` passed to the next step.
+- `|` runs agents in parallel.
+- Agent names are matched case-insensitively and completed dynamically from `.pi/extensions/subagent/agents/*.md`.
 
 The extension also keeps the `subagent` tool available for model-driven delegation:
 
@@ -112,5 +117,5 @@ Current version does **not** use Git worktree isolation.
 ## Safety Notes
 
 - Extension-local agents are repository-controlled prompts.
-- The `/agents` command runs bundled project agents with `confirmProjectAgents: false` because these prompts are part of this trusted config package.
+- `#AgentName` shortcuts run bundled project agents with `confirmProjectAgents: false` because these prompts are part of this trusted config package.
 - The raw `subagent` tool still accepts `agentScope` for advanced use.
