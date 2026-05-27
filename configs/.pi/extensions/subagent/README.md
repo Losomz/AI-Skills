@@ -16,7 +16,11 @@ Use `#AgentName` in the editor to quickly delegate to bundled agents:
 - `|` runs agents in parallel.
 - Agent names are matched case-insensitively and completed dynamically from `.pi/extensions/subagent/agents/*.md`.
 
-The extension also keeps the `subagent` tool available for model-driven delegation:
+The extension also keeps the `subagent` tool available for model-driven delegation. The tool contributes Pi-native prompt guidance (`promptSnippet` / `promptGuidelines`) and dynamically injects a current "Available subagents" section before each agent run.
+
+This lets the main model discover suitable subagents by reading each bundled agent's `name`, `description`, `planMode`, and tools instead of relying on hardcoded agent names. Adding another markdown file under `agents/` is enough to make it visible to the main model.
+
+The guidance encourages, but does not force, delegation. It explicitly avoids delegation for small localized tasks and respects user intent when the user asks not to delegate.
 
 ```json
 {

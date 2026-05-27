@@ -680,6 +680,30 @@ function getHashShortcutCompletions(agents: AgentConfig[], prefixText: string) {
 	];
 }
 
+function buildAvailableSubagentsPrompt(ctx: ExtensionContext): string | undefined {
+	const { agents } = discoverAgents(ctx.cwd, "project");
+	if (agents.length === 0) return undefined;
+
+	const agentList = agents
+		.map((agent) => {
+			const tools = agent.tools?.length ? agent.tools.join(", ") : "default";
+			return `- ${agent.name}: ${agent.description} (planMode: ${agent.planMode}; tools: ${tools})`;
+		})
+		.join("\n");
+
+	return `
+
+## Available subagents
+
+The project provides these subagents as optional delegation targets:
+
+${agentList}
+
+When a user task may benefit from isolated context, broad codebase exploration, external research, review, parallel investigation, or larger delegated work, consider whether one of the available subagents is a good fit before doing all work in the main conversation.
+
+Use the \`subagent\` tool only when delegation is actually useful. Choose an agent by its name and description. Do not delegate simple localized tasks. Respect user intent if the user asks not to delegate.`;
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
@@ -733,7 +757,12 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
+	pi.on("before_agent_start", async (event, ctx) => {
+		const prompt = buildAvailableSubagentsPrompt(ctx);
+		if (!prompt) return;
 
+		return { systemPrompt: event.systemPrompt + prompt };
+	});
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
@@ -743,6 +772,15 @@ export default function (pi: ExtensionAPI) {
 			'Default agent scope is "project" (bundled agents from .pi/extensions/subagent/agents).',
 			'Use agentScope: "both" to also include user-level agents from ~/.pi/agent/agents.',
 		].join(" "),
+		promptSnippet:
+			"Delegate suitable work to isolated subagents for codebase exploration, external research, parallel investigation, review, or large implementation tasks.",
+		promptGuidelines: [
+			"Consider using subagent when the task benefits from an isolated context window, such as broad codebase exploration, external/upstream research, independent parallel investigation, review, or large multi-step implementation.",
+			"Choose an appropriate subagent based on the current Available subagents section and each agent's description, instead of relying on hardcoded agent names.",
+			"Do not use subagent for simple localized questions, small single-file changes, or when direct main-agent work is clearer.",
+			"Respect user intent: if the user asks not to delegate, do not call subagent. If the user explicitly names a subagent, prefer delegating that task to it.",
+			"In plan mode, proactively use only subagents whose frontmatter allows planMode: auto; writable or unrestricted subagents require explicit user request.",
+		],
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
