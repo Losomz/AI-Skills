@@ -89,6 +89,12 @@ node agent-sync.mjs pi --local --yes
 node agent-sync.mjs pi --no-commit
 ```
 
+打印结果后直接退出，不显示后续操作菜单（适合 CI/脚本自动化）：
+
+```bash
+node agent-sync.mjs pi --no-result-menu
+```
+
 ## 当前同步内容
 
 同步源来自仓库根目录下的一级文件夹。交互模式下会先选择一级文件夹，再选择该文件夹下的具体文件或目录。
@@ -129,6 +135,8 @@ agents/godot_other_framework.md
 
 同步时直接删除目标文件或目录，再复制最新内容；不创建备份。
 
+同步结束后会显示结果页，明确展示同步是否成功、同步了哪些文件、Git 自动提交/推送状态以及后续提示。交互终端中还会提供后续操作菜单：继续同步其他内容、查看 Git 状态、重新执行本次同步或退出。失败时会显示错误信息和建议，并允许重试。
+
 同步完成后会自动提交并推送同步产生的 Git 改动，提交信息按工具类型生成：
 
 ```text
@@ -144,7 +152,7 @@ agents/godot_other_framework.md
 默认远程仓库：
 
 ```text
-git@github.com:Losomz/AgentFramework.git
+https://github.com/Losomz/AgentFramework.git
 ```
 
 可用环境变量覆盖：

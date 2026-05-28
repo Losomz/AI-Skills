@@ -33,14 +33,16 @@ async function filterCommitPaths(projectDir, paths) {
 
 export async function autoCommitAndPush({ packages, syncedTargets, projectDir, entryScriptPath, skipAutoCommit }) {
   if (skipAutoCommit) {
+    const reason = '用户指定 --no-commit 或 --no-push';
     console.log('\n已跳过自动提交和推送。');
-    return;
+    return { status: 'skipped', reason };
   }
 
   const repoCheck = await run('git', ['rev-parse', '--is-inside-work-tree'], { cwd: projectDir }).catch(() => null);
   if (!repoCheck || repoCheck.stdout.trim() !== 'true') {
+    const reason = '当前目录不是 Git 仓库';
     console.log('\n当前目录不是 Git 仓库，已跳过自动提交和推送。');
-    return;
+    return { status: 'skipped', reason };
   }
 
   const commitPaths = [];
@@ -56,15 +58,17 @@ export async function autoCommitAndPush({ packages, syncedTargets, projectDir, e
 
   const uniquePaths = await filterCommitPaths(projectDir, [...new Set(commitPaths)]);
   if (uniquePaths.length === 0) {
+    const reason = '没有可提交的同步路径';
     console.log('\n没有可提交的同步路径，已跳过自动提交和推送。');
-    return;
+    return { status: 'skipped', reason };
   }
 
   await run('git', ['add', '-A', '--', ...uniquePaths], { cwd: projectDir });
   const status = await run('git', ['status', '--porcelain', '--', ...uniquePaths], { cwd: projectDir });
   if (!status.stdout.trim()) {
+    const reason = '同步路径没有 Git 改动';
     console.log('\n同步路径没有 Git 改动，已跳过自动提交和推送。');
-    return;
+    return { status: 'skipped', reason };
   }
 
   const scope = getCommitScope(packages);
@@ -73,4 +77,5 @@ export async function autoCommitAndPush({ packages, syncedTargets, projectDir, e
   await run('git', ['commit', '-m', message, '--', ...uniquePaths], { cwd: projectDir, stdio: 'inherit' });
   console.log('正在推送同步提交...');
   await run('git', ['push'], { cwd: projectDir, stdio: 'inherit' });
+  return { status: 'committed-and-pushed', message, paths: uniquePaths };
 }

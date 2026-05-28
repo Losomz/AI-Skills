@@ -7,8 +7,10 @@ import { autoCommitAndPush } from '../git/auto-commit.mjs';
 import { confirm, isInteractiveTerminal, selectMenu } from './menu.mjs';
 import { printUsage } from './usage.mjs';
 import { selectSyncPlan } from './sync-wizard.mjs';
+import { POST_SYNC_ACTIONS, printSyncResult, selectPostSyncAction, waitForEnter } from './result-menu.mjs';
+import { run } from '../utils/run.mjs';
 
-const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'git@github.com:Losomz/AgentFramework.git';
+const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'https://github.com/Losomz/AgentFramework.git';
 const DEFAULT_REF = process.env.AGENTFRAMEWORK_REF || 'main';
 const CACHE_ROOT = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.agentframework');
 
@@ -19,6 +21,7 @@ function parseArgs(rawArgs) {
     selectedPackageArg: rawArgs.find((arg) => !arg.startsWith('--')),
     assumeYes: flags.has('--yes') || flags.has('-y'),
     skipAutoCommit: flags.has('--no-commit') || flags.has('--no-push'),
+    noResultMenu: flags.has('--no-result-menu') || flags.has('--no-pause'),
   };
 }
 
@@ -64,13 +67,191 @@ async function selectPackage(catalog, selectedPackageArg) {
   return contentChoice;
 }
 
+function createBaseResult({ projectDir, sourceMode, repoRoot }) {
+  return {
+    success: false,
+    cancelled: false,
+    stage: '准备同步',
+    projectDir,
+    sourceMode,
+    repoRoot,
+    packages: [],
+    syncedTargets: [],
+    gitResult: undefined,
+    error: undefined,
+    hints: [],
+  };
+}
+
+function getErrorHints(error) {
+  const message = error?.message || String(error || '');
+  const hints = [];
+
+  if (/Could not read from remote repository|Connection closed|port 22|Permission denied|Repository not found/i.test(message)) {
+    hints.push('当前默认远程源已改为 HTTPS；如果仍失败，请检查网络、代理或 GitHub 凭据。');
+    hints.push('也可以临时指定 AGENTFRAMEWORK_REPO_URL=https://github.com/Losomz/AgentFramework.git 后重试。');
+  }
+
+  if (/git push|failed to push|rejected|non-fast-forward/i.test(message)) {
+    hints.push('同步文件已复制，但自动推送失败；请检查目标项目 Git 远程仓库状态后手动 push。');
+  }
+
+  if (hints.length === 0) {
+    hints.push('请根据错误信息检查文件权限、网络或目标项目 Git 状态。');
+  }
+
+  return hints;
+}
+
+async function showGitStatus(projectDir) {
+  console.log('\nGit 状态:');
+  try {
+    await run('git', ['status', '--short', '--branch'], { cwd: projectDir, stdio: 'inherit' });
+  } catch (error) {
+    console.log(`无法获取 Git 状态: ${error.message}`);
+  }
+  console.log('');
+  await waitForEnter();
+}
+
+async function showDetails(result) {
+  printSyncResult(result);
+  if (result.error?.stack) {
+    console.log('\n错误堆栈:');
+    console.log(result.error.stack);
+  }
+  console.log('');
+  await waitForEnter();
+}
+
+async function executeSyncOnce({
+  catalog,
+  projectDir,
+  repoRoot,
+  sourceMode,
+  entryScriptPath,
+  selectedPackageArg,
+  forcedPackages,
+  assumeYes,
+  skipAutoCommit,
+}) {
+  const result = createBaseResult({ projectDir, sourceMode, repoRoot });
+
+  try {
+    let packages = forcedPackages;
+    let confirmedByWizard = false;
+
+    if (!packages) {
+      result.stage = '选择同步内容';
+      const useWizard = !selectedPackageArg && isInteractiveTerminal();
+
+      if (useWizard) {
+        const selection = await selectSyncPlan({
+          catalog,
+          context: { projectDir, sourceMode, repoRoot },
+          assumeYes,
+        });
+        if (!selection) {
+          result.cancelled = true;
+          result.stage = '用户取消';
+          return result;
+        }
+        packages = selection.packages;
+        confirmedByWizard = selection.confirmed;
+      } else {
+        console.log('====================================');
+        console.log('       AgentFramework Sync');
+        console.log('====================================');
+        console.log(`目标项目: ${projectDir}`);
+        console.log(`来源模式: ${sourceMode}`);
+        console.log(`同步源: ${repoRoot}`);
+        console.log('');
+
+        packages = await selectPackage(catalog, selectedPackageArg);
+        if (!packages) {
+          result.cancelled = true;
+          result.stage = '用户取消';
+          return result;
+        }
+      }
+    }
+
+    result.packages = packages;
+
+    console.log('将全量覆盖同步以下文件或目录：');
+    for (const pkg of packages) {
+      console.log(`- ${pkg.title}`);
+      for (const target of pkg.targets) {
+        console.log(`  ${target.from} -> ${target.to}`);
+      }
+    }
+    console.log('');
+
+    result.stage = '确认同步';
+    if (!confirmedByWizard && !await confirm('确认继续同步并删除/覆盖目标文件或目录吗？', assumeYes)) {
+      result.cancelled = true;
+      result.stage = '用户取消';
+      return result;
+    }
+
+    result.stage = '同步文件';
+    const syncedTargets = [];
+    for (const pkg of packages) {
+      console.log(`\n同步 ${pkg.title}...`);
+      for (const target of pkg.targets) {
+        const synced = await syncTarget({ repoRoot, projectDir, target });
+        syncedTargets.push(synced);
+        if (synced.skipped) {
+          console.log(`  - 已跳过（源和目标相同）: ${target.from} -> ${target.to}`);
+        } else {
+          console.log(`  ✓ 已同步: ${target.from} -> ${target.to}`);
+        }
+        if (target.after) console.log(`  提示: ${target.after}`);
+      }
+    }
+    result.syncedTargets = syncedTargets;
+
+    result.stage = '自动提交和推送';
+    result.gitResult = await autoCommitAndPush({
+      packages,
+      syncedTargets,
+      projectDir,
+      entryScriptPath,
+      skipAutoCommit,
+    });
+
+    result.success = true;
+    result.stage = '完成';
+    return result;
+  } catch (error) {
+    result.error = error;
+    result.hints = getErrorHints(error);
+    return result;
+  }
+}
+
+async function handlePostSyncAction(result, noResultMenu) {
+  while (true) {
+    const action = await selectPostSyncAction(result, { noResultMenu });
+    if (action === POST_SYNC_ACTIONS.GIT_STATUS) {
+      await showGitStatus(result.projectDir);
+      continue;
+    }
+    if (action === POST_SYNC_ACTIONS.DETAILS) {
+      await showDetails(result);
+      continue;
+    }
+    return action;
+  }
+}
+
 export async function main(options = {}) {
   const rawArgs = options.rawArgs || process.argv.slice(2);
   const projectDir = options.projectDir || process.cwd();
   const repoRoot = options.repoRoot;
   const entryScriptPath = options.entryScriptPath || process.env.AGENTFRAMEWORK_ENTRY_SCRIPT || undefined;
   const sourceMode = options.sourceMode || process.env.AGENTFRAMEWORK_SOURCE_MODE || 'local';
-  const { flags, selectedPackageArg, assumeYes, skipAutoCommit } = parseArgs(rawArgs);
+  const { flags, selectedPackageArg, assumeYes, skipAutoCommit, noResultMenu } = parseArgs(rawArgs);
 
   if (!repoRoot) {
     throw new Error('缺少 AgentFramework 仓库根目录。');
@@ -86,74 +267,40 @@ export async function main(options = {}) {
     throw new Error('未发现可同步内容。');
   }
 
-  const useWizard = !selectedPackageArg && isInteractiveTerminal();
-  let packages;
-  let confirmedByWizard = false;
+  let nextSelectedPackageArg = selectedPackageArg;
+  let forcedPackages;
+  let lastResult;
 
-  if (useWizard) {
-    const selection = await selectSyncPlan({
+  while (true) {
+    lastResult = await executeSyncOnce({
       catalog,
-      context: { projectDir, sourceMode, repoRoot },
+      projectDir,
+      repoRoot,
+      sourceMode,
+      entryScriptPath,
+      selectedPackageArg: nextSelectedPackageArg,
+      forcedPackages,
       assumeYes,
+      skipAutoCommit,
     });
-    if (!selection) {
-      console.log('已取消同步。');
-      return;
-    }
-    packages = selection.packages;
-    confirmedByWizard = selection.confirmed;
-  } else {
-    console.log('====================================');
-    console.log('       AgentFramework Sync');
-    console.log('====================================');
-    console.log(`目标项目: ${projectDir}`);
-    console.log(`来源模式: ${sourceMode}`);
-    console.log(`同步源: ${repoRoot}`);
-    console.log('');
 
-    packages = await selectPackage(catalog, selectedPackageArg);
-    if (!packages) {
-      console.log('已取消同步。');
-      return;
+    const action = await handlePostSyncAction(lastResult, noResultMenu);
+
+    if (action === POST_SYNC_ACTIONS.CONTINUE) {
+      nextSelectedPackageArg = undefined;
+      forcedPackages = undefined;
+      continue;
     }
+
+    if (action === POST_SYNC_ACTIONS.RETRY) {
+      forcedPackages = lastResult.packages?.length ? lastResult.packages : undefined;
+      continue;
+    }
+
+    break;
   }
 
-  console.log('将全量覆盖同步以下文件或目录：');
-  for (const pkg of packages) {
-    console.log(`- ${pkg.title}`);
-    for (const target of pkg.targets) {
-      console.log(`  ${target.from} -> ${target.to}`);
-    }
+  if (lastResult && !lastResult.success && !lastResult.cancelled) {
+    process.exitCode = 1;
   }
-  console.log('');
-
-  if (!confirmedByWizard && !await confirm('确认继续同步并删除/覆盖目标文件或目录吗？', assumeYes)) {
-    console.log('已取消同步。');
-    return;
-  }
-
-  const syncedTargets = [];
-  for (const pkg of packages) {
-    console.log(`\n同步 ${pkg.title}...`);
-    for (const target of pkg.targets) {
-      const synced = await syncTarget({ repoRoot, projectDir, target });
-      syncedTargets.push(synced);
-      if (synced.skipped) {
-        console.log(`  - 已跳过（源和目标相同）: ${target.from} -> ${target.to}`);
-      } else {
-        console.log(`  ✓ 已同步: ${target.from} -> ${target.to}`);
-      }
-      if (target.after) console.log(`  提示: ${target.after}`);
-    }
-  }
-
-  await autoCommitAndPush({
-    packages,
-    syncedTargets,
-    projectDir,
-    entryScriptPath,
-    skipAutoCommit,
-  });
-
-  console.log('\n同步完成。');
 }

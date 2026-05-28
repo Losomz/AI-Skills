@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'git@github.com:Losomz/AgentFramework.git';
+const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'https://github.com/Losomz/AgentFramework.git';
 const DEFAULT_REF = process.env.AGENTFRAMEWORK_REF || 'main';
 const CACHE_ROOT = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.agentframework');
 const CACHE_REPO_DIR = path.join(CACHE_ROOT, 'repo');
@@ -16,7 +17,7 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const SELF_UPDATE_FLAG = '--skip-self-update';
 // Bump this using x.y.z semantic versioning when changing the sync bootstrap.
-const SYNC_SCRIPT_VERSION = '3.3.0';
+const SYNC_SCRIPT_VERSION = '3.4.0';
 // Legacy marker for agent-sync.mjs <= 3 numeric self-updaters. Keep it above old numeric versions.
 // SYNC_SCRIPT_VERSION = 4
 
@@ -24,12 +25,13 @@ const rawArgs = process.argv.slice(2);
 const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
 const useLocalSource = flags.has('--local');
 const skipSelfUpdate = flags.has(SELF_UPDATE_FLAG);
+const noResultMenu = flags.has('--no-result-menu') || flags.has('--no-pause');
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      stdio: options.stdio || 'pipe',
+      stdio: options.stdio === 'inherit' ? ['inherit', 'pipe', 'pipe'] : 'pipe',
       shell: false,
       env: { ...process.env, ...options.env },
     });
@@ -86,6 +88,73 @@ async function ensureTool(command, hint) {
     await run(command, ['--version']);
   } catch {
     throw new Error(hint);
+  }
+}
+
+function isInteractiveTerminal() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+async function askQuestion(message) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(message);
+  } finally {
+    rl.close();
+  }
+}
+
+function getBootstrapErrorHints(error) {
+  const message = error?.message || String(error || '');
+  const hints = [];
+
+  if (/Could not read from remote repository|Connection closed|port 22|Permission denied|Repository not found/i.test(message)) {
+    hints.push('当前默认远程源已改为 HTTPS；如果仍失败，请检查网络、代理或 GitHub 凭据。');
+    hints.push('可以临时执行：AGENTFRAMEWORK_REPO_URL=https://github.com/Losomz/AgentFramework.git node agent-sync.mjs');
+  }
+
+  if (/not detected|未检测到 git/i.test(message)) {
+    hints.push('请先安装 Git，并确认 git 命令可以在当前终端中使用。');
+  }
+
+  if (hints.length === 0) hints.push('请根据错误信息检查网络、权限或缓存目录。');
+  return hints;
+}
+
+function printBootstrapResult({ success, stage, error }) {
+  console.log('');
+  console.log('====================================');
+  console.log('       AgentFramework Sync Result');
+  console.log('====================================');
+  console.log(`状态: ${success ? '成功' : '失败'}`);
+  console.log(`阶段: ${stage}`);
+  console.log(`远程源: ${DEFAULT_REPO_URL}`);
+  console.log(`分支: ${DEFAULT_REF}`);
+  console.log(`缓存目录: ${CACHE_REPO_DIR}`);
+  if (error) {
+    console.log('');
+    console.log('错误信息:');
+    console.log(`  ${error.message || String(error)}`);
+    console.log('');
+    console.log('建议:');
+    for (const hint of getBootstrapErrorHints(error)) console.log(`  - ${hint}`);
+  }
+  console.log('');
+}
+
+async function selectBootstrapFailureAction(error) {
+  printBootstrapResult({ success: false, stage: '更新 AgentFramework 缓存', error });
+
+  if (noResultMenu || !isInteractiveTerminal()) return 'exit';
+
+  while (true) {
+    console.log('请选择下一步操作：');
+    console.log('  1. 重试');
+    console.log('  2. 退出');
+    const answer = (await askQuestion('请输入序号: ')).trim();
+    if (answer === '1') return 'retry';
+    if (answer === '2' || answer === '') return 'exit';
+    console.log('无效选择，请重新输入。');
   }
 }
 
@@ -197,12 +266,22 @@ async function runCli(repoRoot) {
 }
 
 async function main() {
-  const repoRoot = await ensureRepo();
-  await maybeSelfUpdate(repoRoot);
-  await runCli(repoRoot);
+  while (true) {
+    try {
+      const repoRoot = await ensureRepo();
+      await maybeSelfUpdate(repoRoot);
+      await runCli(repoRoot);
+      return;
+    } catch (error) {
+      const action = await selectBootstrapFailureAction(error);
+      if (action === 'retry') continue;
+      process.exitCode = 1;
+      return;
+    }
+  }
 }
 
 main().catch((error) => {
-  console.error('同步失败:', error.message);
+  printBootstrapResult({ success: false, stage: '启动同步脚本', error });
   process.exitCode = 1;
 });
