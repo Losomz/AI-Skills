@@ -1,11 +1,6 @@
-#!/usr/bin/env node
-
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { buildSyncCatalog, flattenSyncCatalog, resolvePackageSelection } from '../sync/catalog.mjs';
 import { syncTarget } from '../sync/sync-target.mjs';
@@ -19,76 +14,6 @@ import { run } from '../utils/run.mjs';
 const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'https://github.com/Losomz/AgentFramework.git';
 const DEFAULT_REF = process.env.AGENTFRAMEWORK_REF || 'main';
 const CACHE_ROOT = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.agentframework');
-const CACHE_REPO_DIR = path.join(CACHE_ROOT, 'repo');
-const SCRIPT_PATH = fileURLToPath(import.meta.url);
-const SCRIPT_VERSION = '3.6.0';
-
-// ── 工具 ──
-
-const pathExists = (p) => fs.access(p).then(() => true, () => false);
-
-const askQuestion = async (msg) => {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try { return await rl.question(msg); } finally { rl.close(); }
-};
-
-const isTTY = () => process.stdin.isTTY && process.stdout.isTTY;
-
-function printBootstrapError(stage, error) {
-  const msg = error?.message || String(error || '');
-  console.log('');
-  console.log('====================================');
-  console.log('       AgentFramework Sync Result');
-  console.log('====================================');
-  console.log('状态: 失败');
-  console.log(`阶段: ${stage}`);
-  console.log(`远程源: ${DEFAULT_REPO_URL}`);
-  console.log(`缓存目录: ${CACHE_REPO_DIR}`);
-  console.log('');
-  console.log('错误信息:');
-  console.log(`  ${msg}`);
-  console.log('');
-}
-
-async function promptRetryOrExit(stage, error) {
-  printBootstrapError(stage, error);
-  if (!isTTY()) return 'exit';
-  while (true) {
-    console.log('请选择：');
-    console.log('  1. 重试');
-    console.log('  2. 退出');
-    const a = (await askQuestion('请输入序号: ')).trim();
-    if (a === '1') return 'retry';
-    if (a === '2' || a === '') return 'exit';
-  }
-}
-
-// ── 缓存仓库 ──
-
-async function ensureCache(rawArgs) {
-  if (rawArgs.includes('--local')) {
-    const srcDir = path.resolve(path.dirname(SCRIPT_PATH), '..', '..');
-    if (await pathExists(path.join(srcDir, 'src', 'cli', 'main.mjs'))) return srcDir;
-    throw new Error('--local 只能在 AgentFramework 仓库内使用');
-  }
-
-  await fs.mkdir(CACHE_ROOT, { recursive: true });
-
-  if (!await pathExists(path.join(CACHE_REPO_DIR, '.git'))) {
-    console.log(`首次设置，正在克隆 AgentFramework 到 ${CACHE_REPO_DIR}`);
-    await run('git', ['clone', '--depth', '1', '--branch', DEFAULT_REF, DEFAULT_REPO_URL, CACHE_REPO_DIR], { stdio: 'inherit' });
-    return CACHE_REPO_DIR;
-  }
-
-  console.log('正在更新 AgentFramework 缓存...');
-  await run('git', ['-C', CACHE_REPO_DIR, 'remote', 'set-url', 'origin', DEFAULT_REPO_URL], { stdio: 'inherit' });
-  await run('git', ['-C', CACHE_REPO_DIR, 'fetch', '--depth', '1', 'origin', DEFAULT_REF], { stdio: 'inherit' });
-  await run('git', ['-C', CACHE_REPO_DIR, 'checkout', DEFAULT_REF], { stdio: 'inherit' });
-  await run('git', ['-C', CACHE_REPO_DIR, 'reset', '--hard', `origin/${DEFAULT_REF}`], { stdio: 'inherit' });
-  return CACHE_REPO_DIR;
-}
-
-// ── 同步逻辑（不变） ──
 
 function parseArgs(rawArgs) {
   const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
@@ -228,52 +153,14 @@ export async function main(options = {}) {
   if (lastResult && !lastResult.success && !lastResult.cancelled) process.exitCode = 1;
 }
 
-// ── 自动执行 ──
-
+// ── 开发直接运行 fallback ──
 const thisFile = fileURLToPath(import.meta.url).replace(/\\/g, '/');
 const invokedFile = (process.argv[1] || '').replace(/\\/g, '/');
 if (thisFile === invokedFile) {
-  (async () => {
-    const rawArgs = process.argv.slice(2);
-
-    let repoRoot;
-    while (true) {
-      try { repoRoot = await ensureCache(rawArgs); break; }
-      catch (e) { if (await promptRetryOrExit('更新缓存', e) === 'exit') { process.exitCode = 1; break; } }
-    }
-    if (!repoRoot) process.exit(process.exitCode || 1);
-
-    // 自我升级：缓存更新后本文件若已变化则重新执行。
-    const useLocal = rawArgs.includes('--local');
-    if (!useLocal && !rawArgs.includes('--skip-self-update')) {
-      try {
-        const cached = path.join(repoRoot, 'src', 'cli', 'main.mjs');
-        if (path.resolve(cached).toLowerCase() !== path.resolve(SCRIPT_PATH).toLowerCase()) {
-          const [a, b] = await Promise.all([fs.readFile(cached), fs.readFile(SCRIPT_PATH)]);
-          if (Buffer.compare(a, b) !== 0) {
-            console.log('检测到同步脚本有更新，正在重新执行...');
-            await new Promise((resolve, reject) => {
-              const child = spawn(process.execPath, [cached, ...rawArgs, '--skip-self-update'], { cwd: process.cwd(), stdio: 'inherit', shell: false });
-              child.on('error', reject);
-              child.on('exit', (c) => process.exit(c ?? 1));
-            });
-          }
-        }
-      } catch {}
-    }
-
-    while (true) {
-      try {
-        await main({ rawArgs, projectDir: process.cwd(), repoRoot, sourceMode: useLocal ? 'local' : 'git cache', entryScriptPath: SCRIPT_PATH });
-        break;
-      } catch (e) {
-        if (await promptRetryOrExit('执行同步', e) === 'exit') { process.exitCode = 1; break; }
-      }
-    }
-
-    if (isTTY() && !rawArgs.includes('--no-pause') && !process.env.CI) {
-      console.log('\n同步流程已结束。按 Enter 退出...');
-      await askQuestion('');
-    }
-  })();
+  const raw = process.argv.slice(2);
+  const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  main({ rawArgs: raw, projectDir: process.cwd(), repoRoot: srcDir, sourceMode: raw.includes('--local') ? 'local' : 'local', entryScriptPath: process.env.AGENTFRAMEWORK_ENTRY_SCRIPT }).catch((e) => {
+    console.error('同步失败:', e.message);
+    process.exitCode = 1;
+  });
 }

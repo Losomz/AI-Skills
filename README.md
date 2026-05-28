@@ -8,15 +8,16 @@
 - `agents/`:通用 agent 模板目录,例如 `godot_sumeru.md`。
 - `docs/`:仓库文档与变更记录。
 
-- `src/`:唯一的入口和同步模块。`src/cli/main.mjs` 负责缓存拉取、自我升级、同步调度和退出前暂停。其他模块处理菜单、同步规则、Git 自动提交等。
+- `agent-sync.mjs`:唯一入口。拉取缓存、自我升级、调用 `src/` 模块执行同步,最后暂停等待退出。
 
 ## 目录结构
 
 ```text
 AgentFramework/
+├── agent-sync.mjs          # 唯一入口,目标项目直接复制/执行
 ├── package.json
 ├── src/
-│   ├── cli/                # 入口 + 参数、菜单、主流程(main.mjs 是唯一入口)
+│   ├── cli/                # 同步主流程、菜单、结果页(main.mjs 是同步模块入口)
 │   ├── git/                # 自动提交推送
 │   ├── sync/               # 同步目录扫描与复制规则
 │   └── utils/              # 通用工具
@@ -37,17 +38,16 @@ AgentFramework/
 
 当前是单文件结构:
 
-- `src/cli/main.mjs`:唯一入口,负责缓存拉取、自我升级、同步调度和退出前暂停。
-- 其他 `src/` 模块:同步规则、菜单、Git、工具函数等。
+- `agent-sync.mjs`:唯一入口,负责缓存拉取、自我升级、同步调度和退出前暂停。
+- `src/`:同步主流程、菜单、结果页、同步规则、Git 自动提交等模块。
 - `package.json`:预留包结构,当前 `private: true`,暂不发布 npm。
 
 ## 同步用法
 
-不需要在目标项目放置任何文件。只需从缓存运行入口:
+将 `agent-sync.mjs` 复制到目标项目根目录,然后:
 
 ```bash
-# 首次自动克隆到 ~/.agentframework/repo,之后增量更新缓存
-node ~/.agentframework/repo/src/cli/main.mjs
+node agent-sync.mjs
 ```
 
 脚本会先扫描仓库根目录下的一级文件夹,再通过同一个交互式向导选择具体内容并确认同步。
@@ -55,47 +55,47 @@ node ~/.agentframework/repo/src/cli/main.mjs
 直接同步某个内容:
 
 ```bash
-node ~/.agentframework/repo/src/cli/main.mjs configs/.pi
-node ~/.agentframework/repo/src/cli/main.mjs configs/.opencode
-node ~/.agentframework/repo/src/cli/main.mjs agents/godot_sumeru.md
-node ~/.agentframework/repo/src/cli/main.mjs all
+node agent-sync.mjs configs/.pi
+node agent-sync.mjs configs/.opencode
+node agent-sync.mjs agents/godot_sumeru.md
+node agent-sync.mjs all
 ```
 
 兼容旧配置名:
 
 ```bash
-node ~/.agentframework/repo/src/cli/main.mjs pi
-node ~/.agentframework/repo/src/cli/main.mjs opencode
+node agent-sync.mjs pi
+node agent-sync.mjs opencode
 ```
 
 跳过确认:
 
 ```bash
-node ~/.agentframework/repo/src/cli/main.mjs pi --yes
+node agent-sync.mjs pi --yes
 ```
 
 开发期从当前仓库本地同步,不拉远程:
 
 ```bash
-node src/cli/main.mjs pi --local --yes
+node agent-sync.mjs pi --local --yes
 ```
 
 只同步、不自动提交和推送:
 
 ```bash
-node ~/.agentframework/repo/src/cli/main.mjs pi --no-commit
+node agent-sync.mjs pi --no-commit
 ```
 
 不显示后续操作菜单,仅打印结果:
 
 ```bash
-node ~/.agentframework/repo/src/cli/main.mjs pi --no-result-menu
+node agent-sync.mjs pi --no-result-menu
 ```
 
 退出前不暂停等待(适合 CI/脚本自动化):
 
 ```bash
-node ~/.agentframework/repo/src/cli/main.mjs pi --no-pause
+node agent-sync.mjs pi --no-pause
 ```
 
 ## 当前同步内容
@@ -134,7 +134,7 @@ agents/godot_other_framework.md
 
 ## 同步策略
 
-`src/cli/main.mjs` 是唯一入口，在单进程中完成全部工作：先更新远程缓存，自我升级（如需），再同步。不在父子进程间 spawn。修改引导逻辑后需要递增脚本内的 `SCRIPT_VERSION`。
+`agent-sync.mjs` 是唯一入口，在单进程中完成全部工作：先更新远程缓存，自我升级（如需），再调用 `src/` 模块同步。不在父子进程间 spawn。
 
 同步时直接删除目标文件或目录,再复制最新内容;不创建备份。
 
