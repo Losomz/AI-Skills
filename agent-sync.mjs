@@ -14,6 +14,9 @@ const CACHE_ROOT = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.
 const CACHE_REPO_DIR = path.join(CACHE_ROOT, 'repo');
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
+// Bump this when changing the sync bootstrap. Old copies in target projects
+// detect a higher version here and self-update automatically.
+const SYNC_SCRIPT_VERSION = '4.0.0';
 
 const rawArgs = process.argv.slice(2);
 const useLocalSource = rawArgs.includes('--local');
