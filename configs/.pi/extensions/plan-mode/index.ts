@@ -5,7 +5,7 @@
  * When enabled, only read-only tools are available.
  *
  * Features:
- * - /plan command or Tab to toggle
+ * - /plan command or Alt+I to toggle
  * - Bash restricted to allowlisted read-only commands
  * - Opencode-style read-only planning reminder
  * - After each plan-mode turn, choose whether to stay, execute, or execute with extra instructions
@@ -163,7 +163,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerShortcut("tab", {
+	pi.registerShortcut("alt+i", {
 		description: "Toggle plan mode",
 		handler: async (ctx) => togglePlanMode(ctx),
 	});

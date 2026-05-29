@@ -14,7 +14,7 @@ Read-only exploration mode for safe code analysis.
 
 - `/plan` - Toggle plan mode
 - `/todos` - Show a note that numbered todo tracking is disabled
-- `Tab` - Toggle plan mode shortcut
+- `Alt+I` - Toggle plan mode shortcut
 
 ## Usage
 
