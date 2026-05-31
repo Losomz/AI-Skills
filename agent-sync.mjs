@@ -5,204 +5,141 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
-const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'git@github.com:Losomz/AgentFramework.git';
+const DEFAULT_REPO_URL = process.env.AGENTFRAMEWORK_REPO_URL || 'https://github.com/Losomz/AgentFramework.git';
 const DEFAULT_REF = process.env.AGENTFRAMEWORK_REF || 'main';
 const CACHE_ROOT = process.env.AGENTFRAMEWORK_HOME || path.join(os.homedir(), '.agentframework');
 const CACHE_REPO_DIR = path.join(CACHE_ROOT, 'repo');
-const PROJECT_DIR = process.cwd();
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
-const SELF_UPDATE_FLAG = '--skip-self-update';
-// Bump this using x.y.z semantic versioning when changing the sync bootstrap.
-const SYNC_SCRIPT_VERSION = '3.3.0';
-// Legacy marker for agent-sync.mjs <= 3 numeric self-updaters. Keep it above old numeric versions.
-// SYNC_SCRIPT_VERSION = 4
+// Bump this when changing the sync bootstrap. Old copies in target projects
+// detect a higher version here and self-update automatically.
+const SYNC_SCRIPT_VERSION = '4.0.0';
 
 const rawArgs = process.argv.slice(2);
-const flags = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
-const useLocalSource = flags.has('--local');
-const skipSelfUpdate = flags.has(SELF_UPDATE_FLAG);
+const useLocalSource = rawArgs.includes('--local');
 
-function run(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      stdio: options.stdio || 'pipe',
-      shell: false,
-      env: { ...process.env, ...options.env },
-    });
+const pathExists = (p) => fs.access(p).then(() => true, () => false);
 
-    let stdout = '';
-    let stderr = '';
+const run = (cmd, args, opts = {}) => new Promise((resolve, reject) => {
+  const child = spawn(cmd, args, { cwd: opts.cwd, stdio: 'inherit', shell: false });
+  child.on('error', reject);
+  child.on('exit', (c) => c === 0 ? resolve() : reject(new Error(`${cmd} ${args.join(' ')} exited with code ${c}`)));
+});
 
-    child.stdout?.on('data', (chunk) => {
-      stdout += chunk.toString();
-      if (options.stdio === 'inherit') process.stdout.write(chunk);
-    });
+const askQuestion = async (msg) => {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try { return await rl.question(msg); } finally { rl.close(); }
+};
 
-    child.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString();
-      if (options.stdio === 'inherit') process.stderr.write(chunk);
-    });
+const isTTY = () => process.stdin.isTTY && process.stdout.isTTY;
 
-    child.on('error', reject);
-    child.on('exit', (code) => {
-      if (code === 0) {
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
-        return;
-      }
-      reject(new Error(stderr.trim() || `${command} ${args.join(' ')} exited with code ${code ?? 'unknown'}`));
-    });
-  });
+function printError(stage, error) {
+  const msg = error?.message || String(error || '');
+  console.log('');
+  console.log('====================================');
+  console.log('       AgentFramework Sync Result');
+  console.log('====================================');
+  console.log('状态: 失败');
+  console.log(`阶段: ${stage}`);
+  console.log(`远程源: ${DEFAULT_REPO_URL}`);
+  console.log(`缓存目录: ${CACHE_REPO_DIR}`);
+  console.log('');
+  console.log('错误信息:');
+  console.log(`  ${msg}`);
+  console.log('');
 }
 
-function runNodeScript(scriptPath, args, env = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [scriptPath, ...args], {
-      cwd: PROJECT_DIR,
-      stdio: 'inherit',
-      shell: false,
-      env: { ...process.env, ...env },
-    });
-
-    child.on('error', reject);
-    child.on('exit', (code) => resolve(code ?? 1));
-  });
-}
-
-async function pathExists(targetPath) {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureTool(command, hint) {
-  try {
-    await run(command, ['--version']);
-  } catch {
-    throw new Error(hint);
+async function promptRetryOrExit(stage, error) {
+  printError(stage, error);
+  if (!isTTY()) return 'exit';
+  while (true) {
+    console.log('请选择：');
+    console.log('  1. 重试');
+    console.log('  2. 退出');
+    const a = (await askQuestion('请输入序号: ')).trim();
+    if (a === '1') return 'retry';
+    if (a === '2' || a === '') return 'exit';
   }
 }
 
 async function ensureRepo() {
-  if (useLocalSource) {
-    return SCRIPT_DIR;
-  }
+  if (useLocalSource) return SCRIPT_DIR;
 
-  await ensureTool('git', '未检测到 git，请先安装 git。');
   await fs.mkdir(CACHE_ROOT, { recursive: true });
 
   if (!await pathExists(path.join(CACHE_REPO_DIR, '.git'))) {
     console.log(`首次同步，正在拉取 AgentFramework: ${DEFAULT_REPO_URL}`);
-    await run('git', ['clone', '--depth', '1', '--branch', DEFAULT_REF, DEFAULT_REPO_URL, CACHE_REPO_DIR], {
-      stdio: 'inherit',
-    });
+    await run('git', ['clone', '--depth', '1', '--branch', DEFAULT_REF, DEFAULT_REPO_URL, CACHE_REPO_DIR]);
     return CACHE_REPO_DIR;
   }
 
   console.log('正在更新 AgentFramework 缓存...');
-  await run('git', ['remote', 'set-url', 'origin', DEFAULT_REPO_URL], { cwd: CACHE_REPO_DIR });
-  await run('git', ['fetch', '--depth', '1', 'origin', DEFAULT_REF], { cwd: CACHE_REPO_DIR, stdio: 'inherit' });
-  await run('git', ['checkout', DEFAULT_REF], { cwd: CACHE_REPO_DIR, stdio: 'inherit' });
-  await run('git', ['reset', '--hard', `origin/${DEFAULT_REF}`], { cwd: CACHE_REPO_DIR, stdio: 'inherit' });
+  await run('git', ['-C', CACHE_REPO_DIR, 'remote', 'set-url', 'origin', DEFAULT_REPO_URL]);
+  await run('git', ['-C', CACHE_REPO_DIR, 'fetch', '--depth', '1', 'origin', DEFAULT_REF]);
+  await run('git', ['-C', CACHE_REPO_DIR, 'checkout', DEFAULT_REF]);
+  await run('git', ['-C', CACHE_REPO_DIR, 'reset', '--hard', `origin/${DEFAULT_REF}`]);
   return CACHE_REPO_DIR;
 }
 
-function normalizePathForCompare(value) {
-  const resolved = path.resolve(value);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-async function filesEqual(a, b) {
-  try {
-    const [left, right] = await Promise.all([fs.readFile(a), fs.readFile(b)]);
-    return Buffer.compare(left, right) === 0;
-  } catch {
-    return false;
-  }
-}
-
-function parseSyncScriptVersion(value) {
-  const text = String(value).trim();
-  if (/^\d+$/.test(text)) return [0, 0, Number(text)];
-  if (!/^\d+\.\d+\.\d+$/.test(text)) return [0, 0, 0];
-  return text.split('.').map((part) => Number(part));
-}
-
-function compareSyncScriptVersions(left, right) {
-  const leftParts = parseSyncScriptVersion(left);
-  const rightParts = parseSyncScriptVersion(right);
-  for (let index = 0; index < 3; index += 1) {
-    const diff = leftParts[index] - rightParts[index];
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-async function getSyncScriptVersion(scriptPath) {
-  try {
-    const content = await fs.readFile(scriptPath, 'utf-8');
-    const semverMatch = content.match(/SYNC_SCRIPT_VERSION\s*=\s*['"`](\d+\.\d+\.\d+)['"`]/);
-    if (semverMatch) return semverMatch[1];
-
-    const legacyMatch = content.match(/SYNC_SCRIPT_VERSION\s*=\s*(\d+)/);
-    return legacyMatch ? legacyMatch[1] : '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
-
 async function maybeSelfUpdate(repoRoot) {
-  if (useLocalSource || skipSelfUpdate) return false;
+  if (useLocalSource || rawArgs.includes('--skip-self-update')) return;
 
-  const sourceScript = path.join(repoRoot, 'agent-sync.mjs');
-  if (!await pathExists(sourceScript)) return false;
-  if (normalizePathForCompare(sourceScript) === normalizePathForCompare(SCRIPT_PATH)) return false;
-  if (await filesEqual(sourceScript, SCRIPT_PATH)) return false;
+  const sourcePath = path.join(repoRoot, 'agent-sync.mjs');
+  if (!await pathExists(sourcePath)) return;
+  if (path.resolve(sourcePath).toLowerCase() === path.resolve(SCRIPT_PATH).toLowerCase()) return;
 
-  const sourceVersion = await getSyncScriptVersion(sourceScript);
-  if (compareSyncScriptVersions(sourceVersion, SYNC_SCRIPT_VERSION) <= 0) return false;
-
-  console.log(`检测到同步脚本有更新（v${SYNC_SCRIPT_VERSION} -> v${sourceVersion}），正在自我升级...`);
-  await fs.copyFile(sourceScript, SCRIPT_PATH);
   try {
-    const sourceStat = await fs.stat(sourceScript);
-    await fs.chmod(SCRIPT_PATH, sourceStat.mode);
-  } catch {
-    // Ignore chmod failures on platforms/filesystems that do not support it.
-  }
-
-  const nextArgs = rawArgs.includes(SELF_UPDATE_FLAG) ? rawArgs : [...rawArgs, SELF_UPDATE_FLAG];
-  console.log('同步脚本已更新，正在重新执行...');
-  const code = await runNodeScript(SCRIPT_PATH, nextArgs);
-  process.exit(code);
+    const [a, b] = await Promise.all([fs.readFile(sourcePath), fs.readFile(SCRIPT_PATH)]);
+    if (Buffer.compare(a, b) !== 0) {
+      console.log('检测到同步脚本有更新，正在自我升级并重新执行...');
+      await fs.copyFile(sourcePath, SCRIPT_PATH);
+      const args = [...rawArgs, '--skip-self-update'];
+      await new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [SCRIPT_PATH, ...args], { cwd: process.cwd(), stdio: 'inherit', shell: false });
+        child.on('error', reject);
+        child.on('exit', (c) => process.exit(c ?? 1));
+      });
+    }
+  } catch {}
 }
 
-async function runCli(repoRoot) {
-  const cliPath = path.join(repoRoot, 'bin', 'agent-sync.mjs');
-  if (!await pathExists(cliPath)) {
-    throw new Error(`AgentFramework CLI 不存在: ${cliPath}`);
+// ── 入口 ──
+
+try {
+  let repoRoot;
+  while (true) {
+    try { repoRoot = await ensureRepo(); break; }
+    catch (e) { if (await promptRetryOrExit('更新缓存', e) === 'exit') { process.exitCode = 1; break; } }
   }
+  if (!repoRoot) process.exit(process.exitCode || 1);
 
-  const code = await runNodeScript(cliPath, rawArgs, {
-    AGENTFRAMEWORK_ENTRY_SCRIPT: SCRIPT_PATH,
-    AGENTFRAMEWORK_SOURCE_MODE: useLocalSource ? 'local' : 'git cache',
-  });
-  process.exit(code);
-}
-
-async function main() {
-  const repoRoot = await ensureRepo();
   await maybeSelfUpdate(repoRoot);
-  await runCli(repoRoot);
+
+  const cliPath = pathToFileURL(path.join(repoRoot, 'src', 'cli', 'main.mjs')).href;
+  while (true) {
+    try {
+      const { main } = await import(cliPath);
+      await main({
+        rawArgs,
+        projectDir: process.cwd(),
+        repoRoot,
+        sourceMode: useLocalSource ? 'local' : 'git cache',
+        entryScriptPath: SCRIPT_PATH,
+      });
+      break;
+    } catch (e) {
+      if (await promptRetryOrExit('执行同步', e) === 'exit') { process.exitCode = 1; break; }
+    }
+  }
+} catch (e) {
+  printError('启动同步脚本', e);
+  process.exitCode = 1;
 }
 
-main().catch((error) => {
-  console.error('同步失败:', error.message);
-  process.exitCode = 1;
-});
+if (isTTY() && !rawArgs.includes('--no-pause') && !process.env.CI) {
+  console.log('\n同步流程已结束。按 Enter 退出...');
+  await askQuestion('');
+}
