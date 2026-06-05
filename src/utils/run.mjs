@@ -5,7 +5,7 @@ export function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      stdio: options.stdio || 'pipe',
+      stdio: options.stdio === 'inherit' ? ['inherit', 'pipe', 'pipe'] : 'pipe',
       shell: false,
       env: { ...process.env, ...options.env },
     });

@@ -12,12 +12,12 @@ export async function syncTarget({ repoRoot, projectDir, target }) {
   }
 
   if (normalizePathForCompare(sourcePath) === normalizePathForCompare(targetPath)) {
-    return { sourcePath, targetPath, skipped: true };
+    return { from: target.from, to: target.to, sourcePath, targetPath, skipped: true };
   }
 
   await fs.rm(targetPath, { recursive: true, force: true });
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
 
-  return { sourcePath, targetPath, skipped: false };
+  return { from: target.from, to: target.to, sourcePath, targetPath, skipped: false };
 }
