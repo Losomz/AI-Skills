@@ -120,10 +120,10 @@ function discoverWorkflows(): BlogWorkflow[] {
 
 function findWorkflow(workflows: BlogWorkflow[], value: string): BlogWorkflow | undefined {
 	const key = normalizeKey(value);
-	return workflows.find((workflow) => {
-		if (normalizeKey(workflow.name) === key) return true;
-		return workflow.aliases.some((alias) => normalizeKey(alias) === key);
-	});
+	// Match name first to avoid an earlier workflow's alias shadowing a later workflow's name
+	const byName = workflows.find((workflow) => normalizeKey(workflow.name) === key);
+	if (byName) return byName;
+	return workflows.find((workflow) => workflow.aliases.some((alias) => normalizeKey(alias) === key));
 }
 
 function formatWorkflowOption(workflow: BlogWorkflow): string {
