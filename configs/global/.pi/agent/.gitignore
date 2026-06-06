@@ -3,5 +3,5 @@ auth.json
 sessions/
 pi-debug.log
 npm/
-git/
+/git/
 bin/
