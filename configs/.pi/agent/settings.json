@@ -1,0 +1,11 @@
+{
+  "enabledModels": [
+    "zai/glm-5v-turbo",
+    "deepseek/deepseek-v4-pro",
+    "openai-codex/gpt-5.5"
+  ],
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
+  "defaultThinkingLevel": "high",
+  "shellPath": "C:\\Program Files\\Git\\bin\\bash.exe"
+}

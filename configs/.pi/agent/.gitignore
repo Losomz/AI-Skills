@@ -1,0 +1,7 @@
+# Pi runtime/sensitive files; do not track in AgentFramework templates
+auth.json
+sessions/
+pi-debug.log
+npm/
+git/
+bin/

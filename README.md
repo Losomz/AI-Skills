@@ -4,7 +4,7 @@
 
 这个仓库现在主要按一级目录组织可同步内容:
 
-- `configs/`:各 AI 工具的可同步配置源,例如 Pi、OpenCode。同步时会全量覆盖目标配置目录。
+- `configs/`:各 AI 工具的可同步配置源,例如 Pi、OpenCode。Pi 全局配置按官方 `~/.pi/agent/` 结构维护；同步 Pi 时只覆盖被管理的文件/子目录，避免删除 `auth.json`、`sessions/` 等运行时数据。
 - `agents/`:通用 agent 模板目录,例如 `godot_sumeru.md`。
 - `docs/`:仓库文档与变更记录。
 
@@ -25,7 +25,12 @@ AgentFramework/
 │   └── godot_sumeru.md     # Godot + Sumeru 项目代理模板
 ├── configs/
 │   ├── .pi/                # Pi 配置源
-│   │   └── extensions/     # Pi extensions
+│   │   └── agent/          # Pi 全局配置结构，对应 ~/.pi/agent/
+│   │       ├── settings.json
+│   │       ├── extensions/
+│   │       ├── skills/
+│   │       ├── prompts/
+│   │       └── themes/
 │   └── .opencode/          # OpenCode 配置源
 │       ├── commands/
 │       ├── skills/
@@ -55,7 +60,8 @@ node agent-sync.mjs
 直接同步某个内容:
 
 ```bash
-node agent-sync.mjs configs/.pi
+node agent-sync.mjs configs/.pi/agent/settings.json
+node agent-sync.mjs configs/.pi/agent/extensions
 node agent-sync.mjs configs/.opencode
 node agent-sync.mjs agents/godot_sumeru.md
 node agent-sync.mjs all
@@ -107,15 +113,21 @@ node agent-sync.mjs pi --no-pause
 `configs/` 是特殊配置源,同步到目标项目时会去掉 `configs/` 前缀:
 
 ```text
-configs/.pi       -> .pi
-configs/.opencode -> .opencode
+configs/.pi/agent/settings.json -> ~/.pi/agent/settings.json
+configs/.pi/agent/extensions/   -> ~/.pi/agent/extensions/
+configs/.pi/agent/skills/       -> ~/.pi/agent/skills/
+configs/.pi/agent/prompts/      -> ~/.pi/agent/prompts/
+configs/.pi/agent/themes/       -> ~/.pi/agent/themes/
+configs/.opencode               -> .opencode
 ```
 
-同步 `.pi` 后在 Pi 中执行:
+同步 Pi 全局配置后在 Pi 中执行:
 
 ```text
 /reload
 ```
+
+Pi 的全局配置目录是 `~/.pi/agent/`;项目级配置目录是项目根目录下的 `.pi/`。不要全量删除/覆盖整个 `~/.pi/agent/`，否则可能丢失登录信息和会话记录。全局与项目级结构详见 `docs/pi-global-config.md`。
 
 ### `agents/`
 
