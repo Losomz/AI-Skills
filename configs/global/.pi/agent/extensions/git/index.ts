@@ -82,16 +82,46 @@ async function handleGitCommit(pi: ExtensionAPI, ctx: ExtensionContext, requeste
 	// so commit details stay inside the subagent's isolated context.
 	const commitTask = `你是本次 Git 提交任务的执行者，请在子 agent 进程内完整完成提交和推送。
 
-## 执行要求
+## 子仓库优先原则
 
-1. 自己执行 \`git status --short\` 检查是否有改动。
-2. 如果没有可提交内容，停止并说明原因。
-3. 自己执行 \`git diff --cached\` 和 \`git diff\` 分析改动。
-4. 根据实际改动生成合适的提交信息。
-5. 执行 \`git add -A\` 暂存所有改动。
+**必须先完成所有子仓库的提交，再提交主仓库。** 这是因为主仓库需要记录子仓库的最新 commit 引用。
+
+### 子仓库发现
+
+1. 先执行 \`git submodule status\` 检查是否有 git submodule。
+2. 再执行 \`git rev-parse --show-toplevel\` 确认当前主仓库根目录。
+3. 然后通过 \`find . -name '.git' -type f -o -name '.git' -type d\` 扫描所有嵌套的独立 git 仓库（排除主仓库自己的 \`.git\` 和 submodule 的 \`.git\` 文件）。
+4. 将发现的所有子仓库（submodule + 嵌套 git repo）汇总为待处理列表。
+
+### 提交顺序
+
+对每个子仓库（按路径深度从深到浅排序，确保子目录先处理）：
+1. \`cd\` 到子仓库目录。
+2. 执行 \`git status --short\` 检查是否有改动，无改动则跳过。
+3. 执行 \`git diff --cached\` 和 \`git diff\` 分析改动。
+4. 根据改动生成提交信息（格式见下方）。
+5. 执行 \`git add -A\` 暂存改动。
 6. 执行 \`git commit -m "提交信息"\` 提交。
 7. 执行 \`git push\` 推送。
-8. 如果发生冲突、提交失败或推送失败，请停止并说明原因，不要让父 agent 代替执行。
+8. 记录该子仓库的提交结果（路径、提交信息）。
+
+### 主仓库提交
+
+所有子仓库处理完毕后：
+1. 回到主仓库根目录。
+2. 执行 \`git status --short\` 检查改动（此时应包含子仓库引用更新）。
+3. 如果没有可提交内容，停止并说明原因。
+4. 执行 \`git diff --cached\` 和 \`git diff\` 分析改动。
+5. 根据实际改动生成合适的提交信息。
+6. 执行 \`git add -A\` 暂存所有改动（包括子仓库引用更新）。
+7. 执行 \`git commit -m "提交信息"\` 提交。
+8. 执行 \`git push\` 推送。
+
+## 执行要求
+
+- 如果发生冲突、提交失败或推送失败，请停止并说明原因，不要让父 agent 代替执行。
+- 汇总报告时，先列出所有子仓库的提交结果，再列出主仓库的提交结果。
+- 如果子仓库全部无改动而主仓库有改动，直接提交主仓库即可。
 
 ## 提交信息格式要求
 

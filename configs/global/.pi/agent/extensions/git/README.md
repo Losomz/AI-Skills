@@ -23,13 +23,18 @@ Sends a fixed delegation template to the main agent that instructs it to immedia
 
 If no inline core requirement is provided, `/git commit` first opens an optional input box. Leaving it empty uses the default workflow; entering text makes that content the core standard for change selection, analysis, and commit message generation.
 
-The main agent does **not** inspect git state, read diffs, generate commit messages, or run git write commands. The selected subagent performs the entire workflow:
+The main agent does **not** inspect git state, read diffs, generate commit messages, or run git write commands. The selected subagent performs the entire workflow with **sub-repo first** ordering:
 
-- check `git status --short`
-- inspect `git diff --cached` and `git diff`
-- generate a Chinese gitmoji + Conventional Commits message
-- run `git add -A`, `git commit`, and `git push`
-- report conflicts, empty changes, commit failures, or push failures
+1. **Discover sub-repos**: `git submodule status` + scan for nested `.git` directories
+2. **Commit sub-repos** (deepest path first):
+   - check `git status --short`, skip if clean
+   - inspect `git diff --cached` and `git diff`
+   - generate a Chinese gitmoji + Conventional Commits message
+   - run `git add -A`, `git commit`, and `git push`
+3. **Commit main repo**:
+   - `git add -A` picks up sub-repo reference updates
+   - inspect diffs, generate message, commit and push
+4. Report conflicts, empty changes, commit failures, or push failures
 
 Default commit subagent: `General`.
 
