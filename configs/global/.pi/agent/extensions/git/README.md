@@ -9,11 +9,37 @@ Layered Git command for Pi.
 - `/git commit <agent>` or `/git commit --agent <agent>` - use a specific subagent for the commit workflow.
 - `/git commit ...核心要求` - 在不指定 agent 的情况下，把后面的内容作为本次提交的核心标准传给提交流程，不再弹输入框。
 - `/git commit <agent> ...核心要求` - 指定 subagent 的同时，附加本次提交核心标准，不再弹输入框。
-- `/git pull` - pull from the current branch with dirty-tree handling。
+- `/git pull` - pull from the current branch with dirty-tree handling.
+- `/git branch` - switch or create branches.
 
-## Design
+## Architecture
 
-This extension keeps Git operations under a single top-level `/git` command so slash-command filtering stays clean.
+```
+git/
+├── index.ts          # 入口：自动发现 operations/ 下的操作模块
+├── operations/
+│   ├── commit.ts     # /git commit
+│   ├── pull.ts       # /git pull
+│   └── branch.ts     # /git branch
+└── README.md
+```
+
+**index.ts 启动时自动扫描 `operations/` 目录**，加载所有导出 `{ value, label, description, handle }` 的模块。
+
+### 添加新操作
+
+1. 在 `operations/` 下新建文件（如 `stash.ts`）
+2. 导出一个对象：
+   ```typescript
+   export default {
+     value: "stash",
+     label: "stash",
+     description: "暂存或恢复工作区改动",
+     async handle(pi, ctx) { ... },
+     getCompletions?(prefix) { ... },  // 可选
+   };
+   ```
+3. 完成。不需要修改 index.ts。
 
 ## Operations
 
@@ -26,14 +52,8 @@ If no inline core requirement is provided, `/git commit` first opens an optional
 The main agent does **not** inspect git state, read diffs, generate commit messages, or run git write commands. The selected subagent performs the entire workflow with **sub-repo first** ordering:
 
 1. **Discover sub-repos**: `git submodule status` + scan for nested `.git` directories
-2. **Commit sub-repos** (deepest path first):
-   - check `git status --short`, skip if clean
-   - inspect `git diff --cached` and `git diff`
-   - generate a Chinese gitmoji + Conventional Commits message
-   - run `git add -A`, `git commit`, and `git push`
-3. **Commit main repo**:
-   - `git add -A` picks up sub-repo reference updates
-   - inspect diffs, generate message, commit and push
+2. **Commit sub-repos** (deepest path first)
+3. **Commit main repo** (picks up sub-repo reference updates)
 4. Report conflicts, empty changes, commit failures, or push failures
 
 Default commit subagent: `General`.
@@ -52,9 +72,17 @@ Examples:
 Checks whether the repository has uncommitted changes. If dirty, it asks whether to:
 
 - stash changes and pull
+- discard local changes and pull (via `git reset --hard HEAD` + `git clean -fd`)
 - commit changes first
 - cancel
 
 After a successful pull, it can restore the auto-created stash.
 
-When discarding local changes, `git reset --hard HEAD` and `git clean -fd` are run before pulling to ensure a clean working tree.
+### branch
+
+Shows current branch and lists all local and remote branches. Supports:
+
+- **切换本地分支** — `git checkout <branch>`
+- **从远程分支创建本地跟踪分支** — `git checkout -b <local> <remote>`
+- **创建新分支** — `git checkout -b <name>`
+- 如果工作区有未提交改动，提供 stash 或丢弃选项
