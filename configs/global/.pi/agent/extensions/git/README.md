@@ -56,3 +56,5 @@ Checks whether the repository has uncommitted changes. If dirty, it asks whether
 - cancel
 
 After a successful pull, it can restore the auto-created stash.
+
+When discarding local changes, `git reset --hard HEAD` and `git clean -fd` are run before pulling to ensure a clean working tree.

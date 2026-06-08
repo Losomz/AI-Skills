@@ -172,6 +172,7 @@ async function handleGitPull(pi: ExtensionAPI, ctx: ExtensionContext): Promise<v
 	if (status.trim().length > 0) {
 		const choice = await ctx.ui.select("You have uncommitted changes. What do you want to do?", [
 			"Stash changes and pull",
+			"Discard local changes and pull",
 			"Commit changes first",
 			"Cancel pull",
 		]);
@@ -186,6 +187,16 @@ async function handleGitPull(pi: ExtensionAPI, ctx: ExtensionContext): Promise<v
 			const { code: stashCode } = await pi.exec("git", ["stash", "push", "-m", "Auto-stash before pull"]);
 			if (stashCode !== 0) {
 				ctx.ui.notify("Failed to stash changes", "error");
+				return;
+			}
+		}
+
+		if (choice === "Discard local changes and pull") {
+			ctx.ui.notify("Discarding local changes...", "info");
+			const { code: resetCode } = await pi.exec("git", ["reset", "--hard", "HEAD"]);
+			const { code: cleanCode } = await pi.exec("git", ["clean", "-fd"]);
+			if (resetCode !== 0 || cleanCode !== 0) {
+				ctx.ui.notify("Failed to discard local changes", "error");
 				return;
 			}
 		}
