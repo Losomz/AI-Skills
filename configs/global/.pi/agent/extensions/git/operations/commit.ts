@@ -25,6 +25,7 @@ async function promptCommitCoreStandard(ctx: ExtensionContext, extraInstructions
 
 export default {
 	value: "commit",
+	order: 1,
 	label: "commit",
 	description: "委派子 agent 完整完成提交和推送",
 

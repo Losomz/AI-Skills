@@ -18,6 +18,7 @@ const opsDir = path.join(__dirname, "operations");
 interface GitOperation {
 	value: string;
 	label: string;
+	order?: number;
 	description: string;
 	handle: (pi: ExtensionAPI, ctx: ExtensionContext, args?: unknown) => Promise<void>;
 	getCompletions?: (prefix: string) => Awaited<ReturnType<NonNullable<NonNullable<Parameters<ExtensionAPI["registerCommand"]>[1]["getArgumentCompletions"]>>>>;
@@ -31,6 +32,7 @@ for (const file of fs.readdirSync(opsDir).filter((f) => f.endsWith(".js") || f.e
 		operations.push(mod.default);
 	}
 }
+operations.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
 
 function formatOperationOption(op: GitOperation): string {
 	return `${op.value} — ${op.description}`;

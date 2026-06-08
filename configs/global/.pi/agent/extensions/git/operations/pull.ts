@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 export default {
 	value: "pull",
+	order: 2,
 	label: "pull",
 	description: "拉取远端变更并处理未提交改动",
 

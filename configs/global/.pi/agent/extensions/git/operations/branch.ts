@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 export default {
 	value: "branch",
+	order: 3,
 	label: "branch",
 	description: "切换或创建分支",
 
