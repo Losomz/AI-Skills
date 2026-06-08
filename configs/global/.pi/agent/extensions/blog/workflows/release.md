@@ -59,6 +59,15 @@ preCommitAgent: General
     git push origin <version>
     ```
     只有当用户核心标准/额外要求明确写了"不推送 / no-push / 不要 push"时，才跳过 push。
+13. 合并到 main 分支（仅 develop 分支时触发）：
+    - 运行 `git branch --show-current` 确认当前分支。
+    - 如果当前在 `develop` 分支：
+      a. `git checkout main`
+      b. `git merge develop` — 如果出现冲突，停止并说明原因，不要自动解决。
+      c. `git push`
+      d. `git checkout develop`（切回 develop 继续开发）
+    - 如果当前在 `main` 或其他分支，跳过合并步骤，在最终反馈中说明跳过原因。
+    - 目的是让 GitHub Actions 在 `main` 分支上检测到 tag 并触发自动打包。
 
 ## 版本号规则
 
@@ -133,3 +142,4 @@ preCommitAgent: General
 - 是否创建了 tag
 - 是否 push 成功
 - 是否会触发 GitHub Actions 自动打包
+- 是否执行了 develop → main 合并，或跳过原因
