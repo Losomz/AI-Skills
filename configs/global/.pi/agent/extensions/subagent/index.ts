@@ -28,6 +28,115 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
+const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls", "bash", "questionnaire"]);
+
+function getAgentCapability(agent: AgentConfig): string {
+	if (!agent.tools || agent.tools.length === 0) return "full-access/writable";
+	if (agent.tools.every((tool) => READ_ONLY_TOOL_NAMES.has(tool.toLowerCase()))) return "read-only";
+	return "limited-tools";
+}
+
+function formatAgentInventoryLine(agent: AgentConfig): string {
+	const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(",") : "default/full";
+	const model = agent.model ? `, model:${agent.model}` : "";
+	return `- ${agent.name}: ${getAgentCapability(agent)}, planMode:${agent.planMode}, tools:${tools}${model}. ${agent.description}`;
+}
+
+function formatAgentInventory(agents: AgentConfig[]): string {
+	if (agents.length === 0) return "Available subagents: none.";
+	return [
+		"Available subagents (names are case-insensitive; use the canonical names below):",
+		...agents.map(formatAgentInventoryLine),
+	].join("\n");
+}
+
+function buildSubagentSystemHint(agents: AgentConfig[]): string {
+	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
+}
+
+function contentToText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part) => {
+			if (typeof part === "string") return part;
+			if (part && typeof part === "object" && "text" in part && typeof part.text === "string") return part.text;
+			return "";
+		})
+		.filter(Boolean)
+		.join("\n");
+}
+
+function isPlanEnabled(ctx: ExtensionContext): boolean {
+	const entry = ctx.sessionManager
+		.getEntries()
+		.filter((e: { type: string; customType?: string }) => e.type === "custom" && (e.customType === "plan-state" || e.customType === "plan-mode"))
+		.pop() as { data?: { enabled?: boolean } } | undefined;
+	return entry?.data?.enabled === true;
+}
+
+function getLatestUserText(ctx: ExtensionContext): string {
+	const entries = ctx.sessionManager.getBranch();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i] as { type?: string; message?: { role?: string; content?: unknown } };
+		if (entry.type === "message" && entry.message?.role === "user") return contentToText(entry.message.content);
+	}
+	return "";
+}
+
+function hasNegatedAgentMention(text: string, agentName: string): boolean {
+	const lowerText = text.toLowerCase();
+	const lowerName = agentName.toLowerCase();
+	const index = lowerText.indexOf(lowerName);
+	if (index < 0) return false;
+	const prefix = lowerText.slice(Math.max(0, index - 16), index);
+	return /(不要|别|禁止|不能|不允许|勿|do not|don't|dont|not)\s*$/.test(prefix);
+}
+
+function isExplicitlyRequestedByUser(ctx: ExtensionContext, agentName: string): boolean {
+	const latestUserText = getLatestUserText(ctx);
+	if (!latestUserText.toLowerCase().includes(agentName.toLowerCase())) return false;
+	return !hasNegatedAgentMention(latestUserText, agentName);
+}
+
+function getRequestedSubagentNames(input: {
+	agent?: string;
+	tasks?: Array<{ agent?: string }>;
+	chain?: Array<{ agent?: string }>;
+}): string[] {
+	const names = new Set<string>();
+	if (input.agent) names.add(input.agent);
+	for (const task of input.tasks ?? []) if (task.agent) names.add(task.agent);
+	for (const step of input.chain ?? []) if (step.agent) names.add(step.agent);
+	return Array.from(names);
+}
+
+function validatePlanSubagentCall(
+	input: { agent?: string; tasks?: Array<{ agent?: string }>; chain?: Array<{ agent?: string }> },
+	agents: AgentConfig[],
+	ctx: ExtensionContext,
+): string | undefined {
+	if (!isPlanEnabled(ctx)) return undefined;
+
+	const denied: string[] = [];
+	const needsExplicitUserRequest: string[] = [];
+	for (const requestedName of getRequestedSubagentNames(input)) {
+		const agent = findAgentByName(agents, requestedName);
+		const canonicalName = agent?.name ?? requestedName;
+		const policy = agent?.planMode ?? "explicit";
+		if (policy === "deny") denied.push(canonicalName);
+		else if (policy === "explicit") needsExplicitUserRequest.push(canonicalName);
+	}
+
+	if (denied.length > 0) return `Plan: subagent blocked by agent policy: ${denied.join(", ")}.`;
+
+	const missingExplicitRequest = needsExplicitUserRequest.filter((name) => !isExplicitlyRequestedByUser(ctx, name));
+	if (missingExplicitRequest.length > 0) {
+		return `Plan: writable or unrestricted subagents require an explicit user request. Blocked: ${missingExplicitRequest.join(", ")}. Ask the user to name the subagent if they want it to run.`;
+	}
+
+	return undefined;
+}
 
 type RunStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
@@ -358,19 +467,19 @@ async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 ): Promise<SingleResult> {
-	const runId = createRunId(agentName);
+	const agent = findAgentByName(agents, agentName);
+	const runId = createRunId(agent?.name ?? agentName);
 	const startedAt = Date.now();
-	const agent = agents.find((a) => a.name === agentName);
 
 	if (!agent) {
-		const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
+		const available = formatAgentInventory(agents);
 		return {
 			agent: agentName,
 			agentSource: "unknown",
 			task,
 			exitCode: 1,
 			messages: [],
-			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
+			stderr: `Unknown agent: "${agentName}".\n${available}`,
 			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 			step,
 		};
@@ -385,7 +494,7 @@ async function runSingleAgent(
 
 	const currentResult: SingleResult = {
 		runId,
-		agent: agentName,
+		agent: agent.name,
 		agentSource: agent.source,
 		task,
 		exitCode: 0,
@@ -430,7 +539,7 @@ async function runSingleAgent(
 			currentResult.status = "running";
 			activeRuns.set(runId, {
 				runId,
-				agent: agentName,
+				agent: agent.name,
 				task,
 				model: currentResult.model,
 				pid: proc.pid,
@@ -563,7 +672,8 @@ const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 });
 
 const SubagentParams = Type.Object({
-	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
+	list: Type.Optional(Type.Boolean({ description: "List/discover available subagents and their capabilities without running any task" })),
+	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode). Case-insensitive." })),
 	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
@@ -733,16 +843,32 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
+	pi.on("before_agent_start", async (event, ctx) => {
+		const discovery = discoverAgents(ctx.cwd, "project");
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n${buildSubagentSystemHint(discovery.agents)}`,
+		};
+	});
+
+	const initialInventory = formatAgentInventory(discoverAgents(process.cwd(), "project").agents);
 
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
-			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
-			'Default agent scope is "project" (bundled agents from .pi/extensions/subagent/agents).',
-			'Use agentScope: "both" to also include user-level agents from ~/.pi/agent/agents.',
+			"Modes: list/discover ({list:true}), single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+			'Default agent scope is "project" (extension-local agents from this subagent extension\'s agents/ directory).',
+			'Agent names are case-insensitive. Use agentScope: "both" to also include user-level agents from ~/.pi/agent/agents.',
+			initialInventory,
 		].join(" "),
+		promptSnippet: `Delegate work to isolated subagents. ${initialInventory.replace(/\n/g, " ")}`,
+		promptGuidelines: [
+			"Use subagent when a task benefits from isolated context, parallel exploration, or a specialized agent listed in the subagent inventory.",
+			"Use subagent with Explore for read-only codebase exploration and Scout for read-only external/upstream research when that can reduce main-context work.",
+			"Use subagent with General for implementation or other writable/full-access delegated work; General may edit files.",
+			"Use subagent with {list: true} when the available subagent inventory is unclear.",
+		],
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -751,10 +877,11 @@ export default function (pi: ExtensionAPI) {
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? false;
 
+			const hasList = params.list === true;
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+			const modeCount = Number(hasList) + Number(hasChain) + Number(hasTasks) + Number(hasSingle);
 
 			const makeDetails =
 				(mode: "single" | "parallel" | "chain") =>
@@ -766,15 +893,31 @@ export default function (pi: ExtensionAPI) {
 				});
 
 			if (modeCount !== 1) {
-				const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+				const available = formatAgentInventory(agents);
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
+							text: `Invalid parameters. Provide exactly one mode.\n${available}`,
 						},
 					],
 					details: makeDetails("single")([]),
+				};
+			}
+
+			if (hasList) {
+				return {
+					content: [{ type: "text", text: formatAgentInventory(agents) }],
+					details: makeDetails("single")([]),
+				};
+			}
+
+			const planPolicyReason = validatePlanSubagentCall(params, agents, ctx);
+			if (planPolicyReason) {
+				return {
+					content: [{ type: "text", text: planPolicyReason }],
+					details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
+					isError: true,
 				};
 			}
 
@@ -785,7 +928,7 @@ export default function (pi: ExtensionAPI) {
 				if (params.agent) requestedAgentNames.add(params.agent);
 
 				const projectAgentsRequested = Array.from(requestedAgentNames)
-					.map((name) => agents.find((a) => a.name === name))
+					.map((name) => findAgentByName(agents, name))
 					.filter((a): a is AgentConfig => a?.source === "project");
 
 				if (projectAgentsRequested.length > 0) {
@@ -971,15 +1114,23 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
 			return {
-				content: [{ type: "text", text: `Invalid parameters. Available agents: ${available}` }],
+				content: [{ type: "text", text: `Invalid parameters.\n${formatAgentInventory(agents)}` }],
 				details: makeDetails("single")([]),
 			};
 		},
 
 		renderCall(args, theme, _context) {
 			const scope: AgentScope = args.agentScope ?? "project";
+			if (args.list === true) {
+				return new Text(
+					theme.fg("toolTitle", theme.bold("subagent ")) +
+						theme.fg("accent", "list") +
+						theme.fg("muted", ` [${scope}]`),
+					0,
+					0,
+				);
+			}
 			if (args.chain && args.chain.length > 0) {
 				let text =
 					theme.fg("toolTitle", theme.bold("subagent ")) +

@@ -14,9 +14,9 @@ Use `#AgentName` in the editor to quickly delegate to bundled agents:
 
 - `>` runs agents sequentially with `{previous}` passed to the next step.
 - `|` runs agents in parallel.
-- Agent names are matched case-insensitively and completed dynamically from `.pi/extensions/subagent/agents/*.md`.
+- Agent names are matched case-insensitively and completed dynamically from the extension's same-directory `agents/*.md`.
 
-The extension also keeps the `subagent` tool available for model-driven delegation:
+The extension also keeps the `subagent` tool available for model-driven delegation. At startup and before each agent turn, it injects a concise inventory of available subagents into Pi so the model can proactively choose the right subagent.
 
 ```json
 {
@@ -27,13 +27,24 @@ The extension also keeps the `subagent` tool available for model-driven delegati
 }
 ```
 
+Discover available agents without running a task:
+
+```json
+{
+  "list": true,
+  "agentScope": "project"
+}
+```
+
 ## Bundled Agents
 
 Bundled agents live in:
 
 ```text
-.pi/extensions/subagent/agents/*.md
+<subagent extension directory>/agents/*.md
 ```
+
+For the global template in this repository, that becomes `~/.pi/agent/extensions/subagent/agents/*.md` after sync. The code discovers this directory relative to `index.ts`; it does not hardcode the repository `configs/...` path and does not use `~/.pi/agent/agents/` for bundled subagents.
 
 To add a new agent, add another markdown file with frontmatter:
 
@@ -55,11 +66,11 @@ System prompt for the agent.
 
 If `model` is omitted, the subagent uses the current Pi default model.
 
-`planMode` controls how the plan-mode extension treats this agent:
+`planMode` controls how the subagent tool behaves while the global `plan` extension is active:
 
-- `auto`: the main model may proactively delegate to this agent while staying in plan mode.
-- `explicit`: allowed in plan mode only when the user explicitly names the agent.
-- `deny`: never allowed in plan mode.
+- `auto`: the main model may proactively delegate to this agent while staying in plan.
+- `explicit`: allowed in plan only when the user explicitly names the agent.
+- `deny`: never allowed in plan.
 
 If `planMode` is omitted, agents with only read-only tools infer `auto`; agents without a tool list or with writable tools infer `explicit`.
 
@@ -116,6 +127,6 @@ Current version does **not** use Git worktree isolation.
 
 ## Safety Notes
 
-- Extension-local agents are repository-controlled prompts.
-- `#AgentName` shortcuts run bundled project agents with `confirmProjectAgents: false` because these prompts are part of this trusted config package.
-- The raw `subagent` tool still accepts `agentScope` for advanced use.
+- Extension-local agents are prompts bundled with this trusted config package.
+- `#AgentName` shortcuts run bundled extension-local agents with `confirmProjectAgents: false`.
+- The raw `subagent` tool still accepts `agentScope` for advanced use, but the default bundled agents are discovered from this extension's own `agents/` directory.
