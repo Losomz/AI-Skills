@@ -1,30 +1,47 @@
 # Init Extension
 
-This extension provides a `/init` command that creates or updates the current repository's `AGENTS.md` using an OpenCode-style initialization prompt plus local initialization templates.
+This extension provides a `/init` command that creates or updates the current repository's `AGENTS.md`.
 
 ## Layout
 
 ```text
 init/
   index.ts
+  base.md              # default init instructions, always injected
   README.md
-  templates/
-    base.md
+  templates/           # optional add-on templates
+    godot_sumeru.md
 ```
 
-Add new reusable initialization templates to `templates/*.md`. The command reads all first-level Markdown files in `templates/`, sorts them by filename, and injects them into the initialization prompt.
+`base.md` is the default prompt layer. Edit it when the default `/init` behavior should change. Add reusable, optional initialization checklists to first-level `templates/*.md` files.
 
 ## What `/init` Does
 
-`/init [focus or constraints]` asks the agent to:
+1. Lets the user choose one option with Pi's built-in selector:
+   - `Default` = use only `base.md`
+   - any `templates/*.md` file = use `base.md` plus that optional template
+2. Opens a Pi editor dialog so the user can add or revise focus/constraints before execution.
+3. Injects the full init instructions as hidden context (`display: false`) so the TUI does not show a long prompt.
+4. Sends a short visible user message that starts the agent turn.
 
-1. Read the templates as source material and checklists.
-2. Inspect the target repository's README, manifests, lockfiles, CI, scripts, config, and existing instruction files.
-3. Verify which template ideas apply to the target repository.
-4. Reorganize the verified findings into a coherent, project-specific `AGENTS.md`.
-5. Improve an existing `AGENTS.md` in place when one already exists.
+Cancelling either dialog cancels the command without injecting context or starting the agent.
 
-Templates are not final output. They must not be pasted directly into `AGENTS.md`.
+## Usage
+
+```text
+/init
+/init default
+/init godot_sumeru
+/init godot_sumeru focus on Godot resource safety
+/init focus on test and verification commands
+```
+
+Argument behavior:
+
+- No argument: choose `Default` or one optional template, then edit optional focus text.
+- First argument `default`: skip template selection and use only `base.md`.
+- First argument matching a template name, with or without `.md`: skip template selection and add that template.
+- Other arguments: treated as initial focus text; the template selector is still shown.
 
 ## Template Authoring Rules
 
@@ -47,58 +64,4 @@ Keep:
 - what must be verified in the target repo before writing it
 - examples of high-signal wording, only if they are clearly generic
 
-## Recommended Template Shape
-
-```md
-# Template Name
-
-## Purpose
-
-What this template helps capture.
-
-## Extract When Present
-
-- High-signal facts to look for.
-- Commands or constraints to verify.
-- Gotchas that commonly matter for this project type.
-
-## Do Not Copy Directly
-
-- Project-specific examples or placeholders to remove.
-- Facts that must be verified before inclusion.
-
-## Target AGENTS.md Sections
-
-- Commands
-- Testing
-- Style Guide
-- Generated Code / Assets / Migrations
-```
-
-The shape is recommended, not mandatory. Keep templates easy to scan and easy to merge with other templates.
-
-## Final `AGENTS.md` Standard
-
-The generated `AGENTS.md` should be:
-
-- compact and organized
-- specific to the target repository
-- based on verified repo facts, not guesses
-- structured by topic, not by template file
-- free of raw template text and source-project leftovers
-- focused on information a future agent is likely to miss without help
-
-Good final sections include only those relevant to the target repo:
-
-- top-priority project rules
-- Project Structure
-- Commands
-- Testing
-- Type Checking / Linting
-- Generated Code / Assets / Migrations
-- Style Guide
-- Workflow / Git / PR
-- Architecture Notes
-- Agent Notes
-
-If the repository is simple, the final file should stay simple. If the repository is large, summarize only the structural facts and constraints that change how an agent should work.
+Templates are not final output. They must not be pasted directly into `AGENTS.md`.
