@@ -26,7 +26,7 @@ function readMarkdown(filePath: string): string | undefined {
 }
 
 function loadBasePrompt(): string | undefined {
-	return readMarkdown(path.join(getExtensionDir(), "base.md"));
+	return readMarkdown(path.join(getExtensionDir(), "prompts", "base.md"));
 }
 
 function loadTemplates(): InitTemplate[] {
@@ -135,11 +135,11 @@ export default function (pi: ExtensionAPI) {
 			const templates = loadTemplates();
 			const normalizedPrefix = normalizeTemplateName(prefix);
 			const items = [
-				{ value: "default", label: DEFAULT_CHOICE, description: "Do not add an optional template; init/base.md is always included" },
+				{ value: "default", label: DEFAULT_CHOICE, description: "Do not add an optional template; init/prompts/base.md is always included" },
 				...templates.map((template) => ({
 					value: template.name,
 					label: template.name,
-					description: `Add ${path.basename(template.filePath)}; init/base.md is always included`,
+					description: `Add ${path.basename(template.filePath)}; init/prompts/base.md is always included`,
 				})),
 			];
 			const filtered = items.filter((item) => normalizeTemplateName(item.value).startsWith(normalizedPrefix));
@@ -148,7 +148,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const basePrompt = loadBasePrompt();
 			if (!basePrompt) {
-				ctx.ui.notify("Init base prompt not found: init/base.md", "error");
+				ctx.ui.notify("Init base prompt not found: init/prompts/base.md", "error");
 				return;
 			}
 
