@@ -145,15 +145,6 @@ export default function planExtension(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => togglePlan(ctx),
 	});
 
-	pi.registerCommand("todos", {
-		description: "Show plan status",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify(
-				"Plan mode does not track numbered todos. Use /plan to orchestrate and analyze, then choose Execute when ready.",
-				"info",
-			);
-		},
-	});
 
 	pi.registerShortcut("alt+i", {
 		description: "Toggle plan",

@@ -14,7 +14,6 @@ Orchestration and planning mode for Pi. It helps the main agent triage work, ins
 ## Commands
 
 - `/plan` - Toggle plan mode.
-- `/todos` - Show a note that numbered todo tracking is not used.
 - `Alt+I` - Toggle plan shortcut.
 
 ## Prompt files
