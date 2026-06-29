@@ -9,7 +9,7 @@ interface InitTemplate {
 	content: string;
 }
 
-const DEFAULT_CHOICE = "Default";
+const DEFAULT_CHOICE = "default";
 const NO_FOCUS = "No additional user focus or constraints were provided.";
 
 function getExtensionDir(): string {
@@ -79,7 +79,7 @@ function parseArgs(args: string, templates: InitTemplate[]): { selectedTemplate?
 async function selectTemplate(ctx: ExtensionCommandContext, templates: InitTemplate[]): Promise<InitTemplate | null | undefined> {
 	if (!ctx.hasUI || templates.length === 0) return null;
 
-	const choice = await ctx.ui.select("Init template", [DEFAULT_CHOICE, ...templates.map((template) => template.name)]);
+	const choice = await ctx.ui.select("Optional init template", [DEFAULT_CHOICE, ...templates.map((template) => template.name)]);
 	if (!choice) return undefined;
 	if (choice === DEFAULT_CHOICE) return null;
 	return findTemplate(templates, choice) ?? null;
@@ -95,7 +95,7 @@ async function collectFocus(ctx: ExtensionCommandContext, focusSeed: string): Pr
 
 function renderOptionalTemplate(template: InitTemplate | null): string {
 	if (!template) {
-		return "No optional initialization template was selected. Use only the base initialization instructions.";
+		return "No optional initialization template was selected. The base initialization instructions are still included.";
 	}
 
 	return [`## Template: ${template.name}.md`, `Source: ${template.filePath}`, "", template.content].join("\n");
@@ -130,16 +130,16 @@ Detailed initialization instructions were injected as hidden context.`;
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("init", {
-		description: "Create or update AGENTS.md using the base init prompt and one optional template",
+		description: "Create or update AGENTS.md using base instructions plus an optional template",
 		getArgumentCompletions: (prefix: string) => {
 			const templates = loadTemplates();
 			const normalizedPrefix = normalizeTemplateName(prefix);
 			const items = [
-				{ value: "default", label: DEFAULT_CHOICE, description: "Use only init/base.md" },
+				{ value: "default", label: DEFAULT_CHOICE, description: "Do not add an optional template; init/base.md is always included" },
 				...templates.map((template) => ({
 					value: template.name,
 					label: template.name,
-					description: `Add ${path.basename(template.filePath)} to the base init prompt`,
+					description: `Add ${path.basename(template.filePath)}; init/base.md is always included`,
 				})),
 			];
 			const filtered = items.filter((item) => normalizeTemplateName(item.value).startsWith(normalizedPrefix));

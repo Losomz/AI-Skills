@@ -7,19 +7,19 @@ This extension provides a `/init` command that creates or updates the current re
 ```text
 init/
   index.ts
-  base.md              # default init instructions, always injected
+  base.md              # base init instructions, always injected
   README.md
-  templates/           # optional add-on templates
+  templates/           # optional templates added on top of base.md
     godot_sumeru.md
 ```
 
-`base.md` is the default prompt layer. Edit it when the default `/init` behavior should change. Add reusable, optional initialization checklists to first-level `templates/*.md` files.
+`base.md` is the base prompt layer and is always injected. Edit it when the default `/init` behavior should change. Add reusable, optional initialization checklists to first-level `templates/*.md` files.
 
 ## What `/init` Does
 
-1. Lets the user choose one option with Pi's built-in selector:
-   - `Default` = use only `base.md`
-   - any `templates/*.md` file = use `base.md` plus that optional template
+1. Lets the user choose one optional template mode with Pi's built-in selector:
+   - `default` = add no optional template; `base.md` is still included
+   - any `templates/*.md` file = include `base.md` plus that optional template
 2. Opens a Pi editor dialog so the user can add or revise focus/constraints before execution.
 3. Injects the full init instructions as hidden context (`display: false`) so the TUI does not show a long prompt.
 4. Sends a short visible user message that starts the agent turn.
@@ -38,9 +38,9 @@ Cancelling either dialog cancels the command without injecting context or starti
 
 Argument behavior:
 
-- No argument: choose `Default` or one optional template, then edit optional focus text.
-- First argument `default`: skip template selection and use only `base.md`.
-- First argument matching a template name, with or without `.md`: skip template selection and add that template.
+- No argument: choose `default` or one optional template, then edit optional focus text.
+- First argument `default`: skip template selection and add no optional template; `base.md` is still included.
+- First argument matching a template name, with or without `.md`: skip template selection and add that template on top of `base.md`.
 - Other arguments: treated as initial focus text; the template selector is still shown.
 
 ## Template Authoring Rules
