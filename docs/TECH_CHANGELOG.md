@@ -4,10 +4,56 @@
 
 ## [Unreleased]
 
-### 文档 / 模板
+> 当前无待发布条目（上次范围变更已入库）。
 
-- 新增 Pi `/init` 模板 `cocos-noelle.md`，用于 Cocos Creator + Noelle 框架项目的 `AGENTS.md` 初始化素材。
-- 更新 README、Pi 配置说明和 init 扩展说明，将路径说明对齐到当前 `configs/global/` 与 `configs/project/` 结构。
+## [v0.1.0] - 2026-06-30
+
+> 分析范围：v0.0.1..HEAD
+
+### 功能变更
+
+- `/git` 扩展能力扩展为更完整的提交工作流：支持 `/git commit` 透传附加要求（如额外提交约束）并优化交互参数解析；并新增 `branch/commit/pull` 子命令能力，覆盖子仓库优先提交、排序与“放弃本地改动并拉取”等流程（commit: 8b8f7e7, 3254bc6, 6560d52, 1cd4e4d, 892e95d, be87fe0）。
+- `/init` 从“单一脚本式模板”升级为“模板化初始化交互”：新增 base/godot/Noelle 模板、拆分默认与可选模板交互逻辑，并将默认提示文件集中到 `prompts`，同时移除 `/todos` 命令入口（commit: 3c0eaa0, 0ac094c, 05b1816, 89b731c）。
+- Blog/发布工作流能力增强：新增 `release` 流程、修复工作流名称匹配逻辑，并补充 `develop → main` 合并步骤；同时支持核心标准输入以适配工作流委派参数流转（commit: 30d932f, 7d2f4aa, 2d60db3）。
+- 子代理协作能力增强：支持 `#AgentName` 行内快捷语法，新增项目级代理清单与子代理自动发现链路，统一 codex 模型与配置入口（commit: cb6814c, 10b53ea, 9c0559c, de2db81, 31a6e6e, a79fd44）。
+- 同步能力体验优化：支持按目录同步通用内容，新增同步结果页与后续操作菜单，新增同步脚本引导入口及版本标识与升级逻辑（commit: 6f7eec7, fc39037, 9fbb89d, 1ca0b04, 80a5180, 5c9c0cc, 723ad22）。
+
+### 架构/重构
+
+- 同步执行链路从单文件脚本演进为模块化 CLI：核心入口、菜单、结果页、自动提交、同步与文件系统能力被拆分到 `src/cli/*`、`src/sync/*`、`src/git/*`、`src/utils/*`，便于独立扩展与维护（commit: 44dce37, b118b53, e6afc0a）。
+- 配置目录体系完成迁移与统一：将 `.pi`/`.opencode` 配置从散落路径收敛到 `configs/global/.pi`、`configs/global/.codex`、`configs/project/.pi` 与 `configs/project/.opencode`，并补齐目录占位与说明文档（commit: ac10685, 8d44893, b7260e1, 3e9b9e9）。
+- `/plan-mode` 重构为 `/plan` + `subagent` 组合能力：移除旧实现并引入新的 plan 扩展入口、统一文案与代理清单（commit: 9c0559c）。
+- Git 扩展内部改为可插拔的 `operations` 目录并通过自动发现加载，形成可扩展的操作模块化边界（commit: 3254bc6, be87fe0）。
+
+### 问题修复
+
+- `/plan-mode` 终端快捷键由 `Tab` 改为 `Alt+I`，减少与终端原生快捷键冲突（commit: 8b3d16d）。
+- 修复 `/git` 子命令在某些场景下被忽略/不加载的配置问题（commit: 0f06092）。
+- 修正发布工作流在名称匹配上的潜在错误（commit: 30d932f）。
+- 优化 sync 与交互输入校验，降低误输入导致错误执行的概率（commit: abd8787, 2d60db3）。
+
+### 性能/稳定性
+
+- `agent-sync` 引入语义化版本标识与 `SYNC_SCRIPT_VERSION` 自升级逻辑，减少旧脚本版本漂移导致的执行不一致（commit: 5c9c0cc, 80a5180, 723ad22）。
+- 清理大量 `pi示例包` 示例代码并删除仓库顶层 `package.json`，显著减小仓库体积与同步扫描成本；该变更偏维护性优化（commit: 1eed5c2, a571095）。
+
+### 构建/工程化
+
+- 同步与提交流程工程化改造：新增 `sync-wizard`、`result-menu` 等 CLI 模块，统一入口脚本与 `README` 命令说明，便于后续交付和自动化执行（commit: 6f7eec7, fc39037, 9fbb89d, b118b53, e6afc0a）。
+- 文档与配置规范化：补充 `docs/pi-global-config.md`、更新仓库配置路径说明、补齐 `.gitignore` 与 `extensions` 占位文件（commit: 3e9b9e9, b7260e1, a571095）。
+- 日志与流程文档规则细化：补充产品日志规则、版本递增规则与发布工作流模板约束，降低自动化日志生成歧义（commit: d219c3a, a92a924, 1dd864b）。
+
+### 测试/质量
+
+- 本范围未新增专门自动化测试用例；质量管控以结构化文档、CLI 交互与工作流说明为主，建议在 Windows/Unix、子仓库存在/不存在及 `--help/--no-commit` 等关键路径补充回归（commit: 44dce37, 2d60db3, 9fbb89d）。
+- 本次日志采用增量追加方式保留历史版本，已满足技术负责人跨版本追溯需求（commit: d219c3a）。
+
+### 风险与迁移说明
+
+- 配置目录迁移到 `configs/global/.pi` 与 `configs/project/.pi` 后，若外部脚本仍引用旧路径（仓库根 `.pi`/`.opencode`）会出现加载失败，需要同步更新引用（commit: ac10685, 8d44893）。
+- `/init` 由 `/todos` 到 `#AgentName`/plan+subagent 的工作流变化是行为兼容点，需提前迁移使用习惯（commit: 89b731c, 10b53ea, cb6814c）。
+- `pi示例包` 全量删除属于范围内重大清理；如下游依赖该目录，请在后续阶段按需恢复到外部仓库或制定替代来源（commit: 1eed5c2, a571095）。
+- 同步 CLI 与入口链路重构显著，建议在 CI 或外部包装脚本中先做 dry-run 验证，并确认对旧命令参数的兼容行为（commit: 44dce37, fc39037, b118b53）。
 
 ## [v0.0.1] - 2026-05-21
 
