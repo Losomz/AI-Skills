@@ -2,178 +2,194 @@
 
 个人 AI Agent 配置与模板仓库。
 
-这个仓库现在主要按一级目录组织可同步内容:
+本仓库用于沉淀可复用的全局 / 项目级 Agent 配置、Pi 扩展、初始化模板、OpenCode skills、Codex 配置和相关说明文档。
 
-- `configs/`:各 AI 工具的可同步配置源,例如 Pi、OpenCode。Pi 全局配置按官方 `~/.pi/agent/` 结构维护；同步 Pi 时只覆盖被管理的文件/子目录，避免删除 `auth.json`、`sessions/` 等运行时数据。
-- `agents/`:通用 agent 模板目录,例如 `godot_sumeru.md`。
-- `docs/`:仓库文档与变更记录。
-
-- `agent-sync.mjs`:唯一入口。拉取缓存、自我升级、调用 `src/` 模块执行同步,最后暂停等待退出。
-
-## 目录结构
+## 当前目录结构
 
 ```text
 AgentFramework/
-├── agent-sync.mjs          # 唯一入口,目标项目直接复制/执行
-├── package.json
-├── src/
-│   ├── cli/                # 同步主流程、菜单、结果页(main.mjs 是同步模块入口)
-│   ├── git/                # 自动提交推送
-│   ├── sync/               # 同步目录扫描与复制规则
-│   └── utils/              # 通用工具
-├── agents/                 # 通用 agent 模板
-│   └── godot_sumeru.md     # Godot + Sumeru 项目代理模板
+├── agents/                         # 与具体 AI 工具无关的 agent 文档模板
+│   ├── README.md
+│   └── godot_sumeru.md
 ├── configs/
-│   ├── .pi/                # Pi 配置源
-│   │   └── agent/          # Pi 全局配置结构，对应 ~/.pi/agent/
-│   │       ├── settings.json
+│   ├── global/                      # 全局配置源
+│   │   ├── .codex/                  # Codex 全局配置与 agents
+│   │   │   ├── agents/
+│   │   │   └── config.toml
+│   │   └── .pi/agent/               # Pi 全局配置源，对应 ~/.pi/agent/
 │   │       ├── extensions/
-│   │       ├── skills/
+│   │       │   ├── blog/            # /blog 文件化日志工作流
+│   │       │   ├── git/             # /git 分层 Git 操作入口
+│   │       │   ├── init/            # /init 与 AGENTS.md 初始化模板
+│   │       │   ├── plan/            # /plan 计划模式
+│   │       │   └── subagent/        # 子代理扩展与内置 agents
 │   │       ├── prompts/
+│   │       ├── skills/
 │   │       └── themes/
-│   └── .opencode/          # OpenCode 配置源
-│       ├── commands/
-│       ├── skills/
-│       └── opencode.json
+│   └── project/                     # 项目级配置源
+│       ├── .opencode/               # OpenCode commands / skills
+│       └── .pi/                     # 项目级 Pi 配置 / 扩展示例
 ├── docs/
+│   ├── TECH_CHANGELOG.md
+│   └── pi-global-config.md
 └── README.md
 ```
 
-## CLI 结构
+> 当前主线结构是 `configs/global/` 与 `configs/project/`。旧文档或历史脚本中提到的 `configs/.pi/`、`configs/.opencode/` 属于旧路径。
 
-当前是单文件结构:
+## 全局配置
 
-- `agent-sync.mjs`:唯一入口,负责缓存拉取、自我升级、同步调度和退出前暂停。
-- `src/`:同步主流程、菜单、结果页、同步规则、Git 自动提交等模块。
-- `package.json`:预留包结构,当前 `private: true`,暂不发布 npm。
+### Pi
 
-## 同步用法
-
-将 `agent-sync.mjs` 复制到目标项目根目录,然后:
-
-```bash
-node agent-sync.mjs
-```
-
-脚本会先扫描仓库根目录下的一级文件夹,再通过同一个交互式向导选择具体内容并确认同步。
-
-直接同步某个内容:
-
-```bash
-node agent-sync.mjs configs/.pi/agent/settings.json
-node agent-sync.mjs configs/.pi/agent/extensions
-node agent-sync.mjs configs/.opencode
-node agent-sync.mjs agents/godot_sumeru.md
-node agent-sync.mjs all
-```
-
-兼容旧配置名:
-
-```bash
-node agent-sync.mjs pi
-node agent-sync.mjs opencode
-```
-
-跳过确认:
-
-```bash
-node agent-sync.mjs pi --yes
-```
-
-开发期从当前仓库本地同步,不拉远程:
-
-```bash
-node agent-sync.mjs pi --local --yes
-```
-
-只同步、不自动提交和推送:
-
-```bash
-node agent-sync.mjs pi --no-commit
-```
-
-不显示后续操作菜单,仅打印结果:
-
-```bash
-node agent-sync.mjs pi --no-result-menu
-```
-
-退出前不暂停等待(适合 CI/脚本自动化):
-
-```bash
-node agent-sync.mjs pi --no-pause
-```
-
-## 当前同步内容
-
-同步源来自仓库根目录下的一级文件夹。交互模式下会先选择一级文件夹,再选择该文件夹下的具体文件或目录。
-
-### `configs/`
-
-`configs/` 是特殊配置源,同步到目标项目时会去掉 `configs/` 前缀:
+Pi 官方全局配置目录：
 
 ```text
-configs/.pi/agent/settings.json -> ~/.pi/agent/settings.json
-configs/.pi/agent/extensions/   -> ~/.pi/agent/extensions/
-configs/.pi/agent/skills/       -> ~/.pi/agent/skills/
-configs/.pi/agent/prompts/      -> ~/.pi/agent/prompts/
-configs/.pi/agent/themes/       -> ~/.pi/agent/themes/
-configs/.opencode               -> .opencode
+~/.pi/agent/
 ```
 
-同步 Pi 全局配置后在 Pi 中执行:
+本仓库对应源路径：
+
+```text
+configs/global/.pi/agent/
+```
+
+常见映射：
+
+```text
+configs/global/.pi/agent/extensions/ -> ~/.pi/agent/extensions/
+configs/global/.pi/agent/prompts/    -> ~/.pi/agent/prompts/
+configs/global/.pi/agent/skills/     -> ~/.pi/agent/skills/
+configs/global/.pi/agent/themes/     -> ~/.pi/agent/themes/
+```
+
+同步 Pi 全局配置后，在 Pi 中执行：
 
 ```text
 /reload
 ```
 
-Pi 的全局配置目录是 `~/.pi/agent/`;项目级配置目录是项目根目录下的 `.pi/`。不要全量删除/覆盖整个 `~/.pi/agent/`，否则可能丢失登录信息和会话记录。全局与项目级结构详见 `docs/pi-global-config.md`。
+不要全量删除或覆盖整个 `~/.pi/agent/`，避免误删 `auth.json`、`sessions/` 等运行时数据。详见 `docs/pi-global-config.md`。
 
-### `agents/`
+### Codex
 
-其他一级文件夹默认保留路径同步:
+Codex 全局配置源位于：
 
 ```text
-agents/godot_sumeru.md -> agents/godot_sumeru.md
+configs/global/.codex/
 ```
 
-因此后续可以按框架继续添加可区分的 agent 模板,例如:
+当前包含：
+
+- `config.toml`：Codex 配置。
+- `agents/`：Codex agent 配置，如 `explorer`、`reviewer`、`worker`。
+
+## Pi 扩展
+
+Pi 全局扩展源位于：
+
+```text
+configs/global/.pi/agent/extensions/
+```
+
+当前扩展：
+
+- `init/`：提供 `/init`，用基础说明和可选模板创建或更新目标项目的 `AGENTS.md`。
+- `plan/`：提供 `/plan` 计划模式，限制写工具并注入规划提示。
+- `subagent/`：提供子代理工具、`#AgentName` 快捷委派和内置 `General` / `Explore` / `Scout`。
+- `git/`：提供 `/git` 分层入口，包括 commit、pull、branch 等 Git 工作流。
+- `blog/`：提供 `/blog` 文件化日志工作流，如 product、tech、release、work。
+
+每个扩展目录下的 `README.md` 记录该扩展的具体命令、结构和维护方式。
+
+## `/init` 模板
+
+`/init` 扩展目录：
+
+```text
+configs/global/.pi/agent/extensions/init/
+```
+
+模板目录：
+
+```text
+configs/global/.pi/agent/extensions/init/templates/
+```
+
+当前模板：
+
+- `cocos-noelle.md`：Cocos Creator + Noelle 框架项目的 `AGENTS.md` 初始化素材。
+- `godot_sumeru.md`：Godot 4.x + Sumeru 框架项目的 `AGENTS.md` 初始化素材。
+
+用法示例：
+
+```text
+/init
+/init default
+/init cocos-noelle
+/init godot_sumeru
+```
+
+模板只是初始化素材 / checklist，不应被直接复制到目标项目 `AGENTS.md`。`/init` 会结合基础说明、模板和目标仓库事实，生成或更新项目自己的 `AGENTS.md`。
+
+## 项目级配置
+
+项目级配置源位于：
+
+```text
+configs/project/
+```
+
+常见映射：
+
+```text
+configs/project/.opencode/ -> <project>/.opencode/
+configs/project/.pi/       -> <project>/.pi/
+```
+
+`AGENTS.md` 是项目上下文文件，通常放在项目根目录，不放在 `.pi/` 里。
+
+### OpenCode
+
+OpenCode 项目级配置源位于：
+
+```text
+configs/project/.opencode/
+```
+
+当前包含：
+
+- `commands/`：OpenCode 命令模板，如 commit、changelog。
+- `skills/`：OpenCode skills，包括 Cocos、Unity、中文编码等。
+- `opencode.json`：OpenCode 配置文件。
+
+### Pi 项目级配置
+
+Pi 项目级配置源位于：
+
+```text
+configs/project/.pi/
+```
+
+当前主要保留项目级扩展示例，例如 `extensions/blog/`。项目级配置会覆盖或合并全局 Pi 配置。
+
+## 通用 agent 文档
+
+`agents/` 目录保留与具体工具无关的 agent 文档模板，例如：
 
 ```text
 agents/godot_sumeru.md
-agents/godot_other_framework.md
 ```
 
-## 同步策略
-
-`agent-sync.mjs` 是唯一入口，在单进程中完成全部工作：先更新远程缓存，自我升级（如需），再调用 `src/` 模块同步。不在父子进程间 spawn。
-
-同步时直接删除目标文件或目录,再复制最新内容;不创建备份。
-
-同步结束后会显示结果页,明确展示同步是否成功、同步了哪些文件、Git 自动提交/推送状态以及后续提示。交互终端中还会提供后续操作菜单:继续同步其他内容、查看 Git 状态、重新执行本次同步或退出。失败时会显示错误信息和建议,并允许重试。
-
-同步完成后会自动提交并推送同步产生的 Git 改动,提交信息按工具类型生成:
+如果是给 Pi `/init` 使用的项目初始化模板，应优先放到：
 
 ```text
-✨ feat(pi): 工具升级
-✨ feat(opencode): 工具升级
-✨ feat(tools): 工具升级
+configs/global/.pi/agent/extensions/init/templates/
 ```
 
-如果目标目录不是 Git 仓库、同步路径没有可提交改动,或使用了 `--no-commit` / `--no-push`,则跳过自动提交和推送。
+## 维护注意事项
 
-## 远程仓库配置
-
-默认远程仓库:
-
-```text
-https://github.com/Losomz/AgentFramework.git
-```
-
-可用环境变量覆盖:
-
-```bash
-AGENTFRAMEWORK_REPO_URL=<repo-url>
-AGENTFRAMEWORK_REF=main
-AGENTFRAMEWORK_HOME=<cache-dir>
-```
+- 不要把运行时数据、登录凭据、会话记录、缓存目录提交进模板源。
+- Pi 全局配置同步时只覆盖被管理的文件或子目录，不要整体替换 `~/.pi/agent/`。
+- `/init` 模板只提供可复用检查项，目标项目的命令、路径、框架事实必须重新核验。
+- OpenCode skills、Pi extensions、Codex agents 分别维护在各自配置目录，避免混放。
+- 历史变更记录见 `docs/TECH_CHANGELOG.md`。

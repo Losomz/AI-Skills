@@ -1,5 +1,14 @@
 # 技术变更日志
 
+> 历史版本条目保留当时的路径和同步脚本表述；当前仓库结构以根目录 `README.md` 与 `docs/pi-global-config.md` 为准。
+
+## [Unreleased]
+
+### 文档 / 模板
+
+- 新增 Pi `/init` 模板 `cocos-noelle.md`，用于 Cocos Creator + Noelle 框架项目的 `AGENTS.md` 初始化素材。
+- 更新 README、Pi 配置说明和 init 扩展说明，将路径说明对齐到当前 `configs/global/` 与 `configs/project/` 结构。
+
 ## [v0.0.1] - 2026-05-21
 
 > 分析范围：project start..HEAD

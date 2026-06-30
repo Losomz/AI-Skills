@@ -9,27 +9,36 @@ Pi 官方把配置分为全局配置和项目级配置：
 
 项目级配置会覆盖全局配置；`settings.json` 里的嵌套对象会合并。
 
-## 全局配置
+## 本仓库路径约定
 
-本仓库用下面的源目录跟 Pi 官方全局结构保持一致：
+当前仓库把配置源分为两类：
 
 ```text
-configs/.pi/agent/
-├── settings.json
+configs/global/   # 全局配置源
+configs/project/  # 项目级配置源
+```
+
+旧文档或旧脚本里出现的 `configs/.pi/`、`configs/.opencode/` 是历史路径；当前主线应使用 `configs/global/` 和 `configs/project/`。
+
+## 全局配置
+
+本仓库中 Pi 全局配置源目录是：
+
+```text
+configs/global/.pi/agent/
 ├── extensions/
-├── skills/
 ├── prompts/
+├── skills/
 └── themes/
 ```
 
-同步到本机全局 Pi 配置时，应按被管理的文件/子目录逐项同步，不要全量删除或覆盖整个 `~/.pi/agent/`。对应关系是：
+同步到本机全局 Pi 配置时，应按被管理的文件或子目录逐项同步，不要全量删除或覆盖整个 `~/.pi/agent/`。对应关系是：
 
 ```text
-configs/.pi/agent/settings.json  -> ~/.pi/agent/settings.json
-configs/.pi/agent/extensions/    -> ~/.pi/agent/extensions/
-configs/.pi/agent/skills/        -> ~/.pi/agent/skills/
-configs/.pi/agent/prompts/       -> ~/.pi/agent/prompts/
-configs/.pi/agent/themes/        -> ~/.pi/agent/themes/
+configs/global/.pi/agent/extensions/ -> ~/.pi/agent/extensions/
+configs/global/.pi/agent/prompts/    -> ~/.pi/agent/prompts/
+configs/global/.pi/agent/skills/     -> ~/.pi/agent/skills/
+configs/global/.pi/agent/themes/     -> ~/.pi/agent/themes/
 ```
 
 `auth.json`、`sessions/` 等运行时数据保留在本机，不纳入模板同步。
@@ -51,7 +60,32 @@ Pi 官方可识别的常用全局文件还包括：
 - `keybindings.json`：全局快捷键
 - `models.json`：自定义 providers/models
 
-这些文件有实际内容时再加入 `configs/.pi/agent/`。
+这些文件有实际内容时再加入 `configs/global/.pi/agent/`。
+
+## Pi `/init` 扩展
+
+`/init` 扩展属于 Pi 全局扩展，源路径是：
+
+```text
+configs/global/.pi/agent/extensions/init/
+```
+
+关键文件：
+
+```text
+configs/global/.pi/agent/extensions/init/index.ts
+configs/global/.pi/agent/extensions/init/prompts/base.md
+configs/global/.pi/agent/extensions/init/templates/
+```
+
+`prompts/base.md` 是所有 `/init` 都会注入的基础说明。`templates/*.md` 是可选初始化模板，例如：
+
+```text
+configs/global/.pi/agent/extensions/init/templates/cocos-noelle.md
+configs/global/.pi/agent/extensions/init/templates/godot_sumeru.md
+```
+
+模板只是创建或更新目标项目 `AGENTS.md` 的素材和 checklist，不是最终输出；目标项目中的事实、命令、路径和框架规则仍必须在目标仓库内重新核验。
 
 ## 项目级配置
 
@@ -72,17 +106,23 @@ Pi 官方项目级配置目录是项目根目录下的 `.pi/`：
     └── git/               # `pi install -l` 的 git 包运行目录
 ```
 
+本仓库中的 Pi 项目级配置源路径是：
+
+```text
+configs/project/.pi/
+```
+
 常见项目级映射：
 
 ```text
-.pi/settings.json   -> 项目设置
-.pi/extensions/     -> 项目专用扩展
-.pi/skills/         -> 项目专用技能
-.pi/prompts/        -> 项目专用提示模板
-.pi/themes/         -> 项目专用主题
-.pi/SYSTEM.md       -> 项目级替换 system prompt
-.pi/APPEND_SYSTEM.md -> 项目级追加 system prompt
-AGENTS.md           -> 项目上下文指令，不在 .pi/ 里
+configs/project/.pi/settings.json    -> <project>/.pi/settings.json
+configs/project/.pi/extensions/      -> <project>/.pi/extensions/
+configs/project/.pi/skills/          -> <project>/.pi/skills/
+configs/project/.pi/prompts/         -> <project>/.pi/prompts/
+configs/project/.pi/themes/          -> <project>/.pi/themes/
+configs/project/.pi/SYSTEM.md        -> <project>/.pi/SYSTEM.md
+configs/project/.pi/APPEND_SYSTEM.md -> <project>/.pi/APPEND_SYSTEM.md
+AGENTS.md                            -> <project>/AGENTS.md，不在 .pi/ 里
 ```
 
 项目级 `settings.json` 示例：

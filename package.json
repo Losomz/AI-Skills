@@ -1,9 +1,0 @@
-{
-  "name": "agentframework",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "check": "node --check agent-sync.mjs && node --check src/cli/main.mjs && node --check src/cli/menu.mjs && node --check src/cli/result-menu.mjs && node --check src/cli/sync-wizard.mjs && node --check src/cli/usage.mjs && node --check src/git/auto-commit.mjs && node --check src/sync/catalog.mjs && node --check src/sync/rules.mjs && node --check src/sync/sync-target.mjs && node --check src/utils/fs.mjs && node --check src/utils/path.mjs && node --check src/utils/run.mjs"
-  }
-}

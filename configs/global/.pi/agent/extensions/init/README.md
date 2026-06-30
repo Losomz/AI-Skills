@@ -11,6 +11,7 @@ init/
   prompts/
     base.md            # base init instructions, always injected
   templates/           # optional templates added on top of prompts/base.md
+    cocos-noelle.md
     godot_sumeru.md
 ```
 
@@ -32,6 +33,8 @@ Cancelling either dialog cancels the command without injecting context or starti
 ```text
 /init
 /init default
+/init cocos-noelle
+/init cocos-noelle focus on Cocos prefab and Noelle storage rules
 /init godot_sumeru
 /init godot_sumeru focus on Godot resource safety
 /init focus on test and verification commands
