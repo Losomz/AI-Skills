@@ -29,6 +29,8 @@ Verify and summarize actual conventions before writing them:
 - Variable, function, and signal naming, commonly `snake_case`.
 - Constants, commonly `UPPER_SNAKE_CASE`.
 - Whether scripts require explicit `extends`, typed parameters, typed variables, and return types.
+- When adding functionality, name code by stable capability or purpose rather than narrow current behavior, so small requirement changes do not force renames.
+- Keep code simple; do not extract very thin wrapper methods unless they clarify reuse, lifecycle, or domain intent.
 - How the project separates UI logic, gameplay systems, data models, commands, utilities, and app entry logic.
 
 ### Godot Structure and Entry Flow

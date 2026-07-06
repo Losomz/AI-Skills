@@ -48,6 +48,8 @@ Verify existing conventions before writing them:
 High-signal rules to include when verified:
 
 - Prefer minimal, local changes over broad refactors.
+- When adding functionality, name code by stable capability or purpose rather than narrow current behavior, so small requirement changes do not force renames.
+- Keep code simple; do not extract very thin wrapper methods unless they clarify reuse, lifecycle, or domain intent.
 - Do not format the whole repository for unrelated changes.
 - Follow surrounding file style instead of enforcing a new global style.
 - Keep platform checks consistent with existing patterns such as `typeof wx !== 'undefined'` or the project's environment wrapper.
