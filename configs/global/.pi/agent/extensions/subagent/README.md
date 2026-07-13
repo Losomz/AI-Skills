@@ -53,10 +53,6 @@ To add a new agent, add another markdown file with frontmatter:
 name: MyAgent
 description: What this agent is for
 tools: read, grep, find, ls
-# Plan mode policy: auto = model may call proactively in plan mode;
-# explicit = only when user explicitly names this agent; deny = never in plan mode.
-# If omitted, read-only tool lists infer auto; unrestricted/writable agents infer explicit.
-planMode: auto
 # Optional. If omitted, the current Pi default model is used.
 # model: provider/model
 ---
@@ -65,14 +61,6 @@ System prompt for the agent.
 ```
 
 If `model` is omitted, the subagent uses the current Pi default model.
-
-`planMode` controls how the subagent tool behaves while the global `plan` extension is active:
-
-- `auto`: the main model may proactively delegate to this agent while staying in plan.
-- `explicit`: allowed in plan only when the user explicitly names the agent.
-- `deny`: never allowed in plan.
-
-If `planMode` is omitted, agents with only read-only tools infer `auto`; agents without a tool list or with writable tools infer `explicit`.
 
 ## Default Agents
 

@@ -2,7 +2,6 @@
 name: Scout
 description: 一个用于外部文档和依赖研究的只读代理。当需要克隆依赖仓库到托管缓存、检查库源码，或在不修改工作区的情况下将本地代码与 upstream 实现交叉对照时使用。
 tools: read, grep, find, ls, bash
-planMode: auto
 model: openai-codex/gpt-5.3-codex-spark
 ---
 

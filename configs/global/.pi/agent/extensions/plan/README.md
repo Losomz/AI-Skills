@@ -1,71 +1,70 @@
 # Plan Extension
 
-Orchestration and planning mode for Pi. It helps the main agent triage work, inspect facts, design an approach, and only then switch back to execution.
+Plan mode for Pi 0.80.4+. It lets the main agent inspect and plan while withholding its normal write tools, then returns to execution only through an explicit mode change.
 
-## Features
+## Entry points
 
-- **Planning prompt injection**: injects a hidden prompt from `prompts/plan.md` while plan is active.
-- **Tool-layer write protection**: removes write tools from the active tool list and blocks destructive/write-like bash commands.
-- **Analysis-friendly bash**: allows non-mutating analysis commands instead of relying on a tiny allowlist.
-- **Subagent-aware, but decoupled**: plan does not import subagent internals. The `subagent` tool enforces each agent's own `planMode` policy when plan is active.
-- **Three-choice flow**: after each plan turn, choose `Stay`, `Execute`, or `Execute with additional instructions`.
-- **Session persistence**: plan enabled state survives session resume.
+- `/plan` and `Alt+I` call the same manual-toggle handler.
+- `--plan` enables Plan after session state is restored, so it overrides a persisted disabled state.
+- `Stay`, `Execute`, and `Execute with additional instructions` are shown after an interactive Plan turn.
 
-## Commands
+Every transition passes through the single `requestMode()` function in `index.ts`. A switch requested while Pi is running becomes an in-memory pending target; the current run keeps its captured mode and the final target is applied only after `agent_settled` reports Pi idle.
 
-- `/plan` - Toggle plan mode.
-- `Alt+I` - Toggle plan shortcut.
+Manual exit is not Execute. It only changes mode and records a one-shot inactive notice for the next real user prompt. Explicit Execute restores tools and sends one `followUp` message with `triggerTurn: true`.
 
-## Prompt files
-
-Prompt text is intentionally kept outside TypeScript:
+## Structure
 
 ```text
 plan/
+├── index.ts       # Pi registration, lifecycle, and requestMode
+├── state.ts       # persisted/runtime state and branch-state decoding
+├── context.ts     # prompts and hidden-context normalization
+├── utils.ts       # tool intersection and bounded write guard
 ├── prompts/
-│   ├── plan.md      # hidden reminder injected while planning
-│   └── execute.md   # message sent when switching to execution
-├── index.ts
-└── utils.ts
+└── tests/
 ```
 
-Edit `prompts/plan.md` to tune planning behavior without touching extension logic.
+The extension intentionally has no adapter/controller/ports hierarchy. Pi side effects remain in `index.ts`; the other modules expose small helpers without importing Pi types.
 
-## How It Works
+## State and branches
 
-### Plan mode
+New state entries use `customType: "plan-state"`:
 
-- The extension stores state as custom entries with `customType: "plan-state"`.
-- Active tools are reduced to currently available analysis/delegation tools: `read`, `bash`, `grep`, `find`, `ls`, `questionnaire`, and `subagent` when those tools are present and active.
-- `edit` and `write` are not exposed to the model.
-- Bash commands are blocked when they appear to mutate files, dependencies, git state, or the system.
-- A hidden `plan-context` message injects the content of `prompts/plan.md` before each agent turn.
-- When plan is disabled, stale `plan-context` / legacy `plan-mode-context` reminders are filtered from context.
-
-### Execution mode
-
-- Full previous tool access is restored.
-- The extension sends `prompts/execute.md` as a visible `plan-execute` message and triggers the next turn.
-- Additional user instructions are appended when using `Execute with additional instructions`.
-
-## Bash blocking policy
-
-Blocked examples:
-
-- File modification: `rm`, `mv`, `cp`, `mkdir`, `touch`, `chmod`, `tee`, redirection (`>`, `>>`)
-- In-place edits / formatters: `sed -i`, `perl -i`, `prettier --write`, `eslint --fix`
-- Dependency mutation: `npm install`, `pnpm add`, `yarn remove`, `pip install`
-- Git write/state mutation: `git add`, `commit`, `push`, `pull`, `merge`, `rebase`, `reset`, `checkout`, `stash`, `clean`, `clone`
-- System mutation: `sudo`, `kill`, `systemctl restart`, editors such as `vim`/`nano`/`code`
-
-Commands not matching the deny list are allowed so normal analysis is less likely to be blocked.
-
-## Subagents in Plan
-
-Plan itself does not parse subagent files. The `subagent` extension reads its own `agents/*.md` frontmatter and enforces `planMode` at tool execution time:
-
-```yaml
-planMode: auto      # may be called proactively in plan
-planMode: explicit  # only if the user explicitly names this subagent
-planMode: deny      # never allowed in plan
+```ts
+interface PersistedPlanStateV2 {
+  enabled: boolean;
+  revision: number;
+  toolsBeforePlan?: string[];
+  notice?: { kind: "inactive"; revision: number };
+}
 ```
+
+Legacy `plan-state` or `plan-mode` entries containing `{ enabled }` remain readable. Pending state is never persisted. Restoration reads only `sessionManager.getBranch()` and does not append a new entry, so sibling branches do not leak mode state.
+
+Entering Plan snapshots the complete active tool list. Plan tools are:
+
+```text
+Plan candidates ∩ registered tools ∩ tools active in the relevant snapshot
+```
+
+Leaving Plan restores the snapshot after filtering tools no longer registered.
+
+## Subagent boundary
+
+Plan has no Subagent protocol or policy. It treats `subagent` like any other Pi tool and retains it only when it is already registered and active. It does not import Subagent code, inspect agent files, or activate the tool.
+
+A writable/full-access subagent can therefore modify the workspace while the main agent is in Plan. The main-agent guard does not provide process isolation; disable or restrict Subagent separately when stronger isolation is required.
+
+## Write guard
+
+While a run is captured in Plan, `edit` and `write` are blocked and malformed Bash input is rejected. `utils.ts` also blocks a short list of common Unix, Git, dependency, system, and PowerShell mutations while allowing ordinary inspection commands.
+
+This is a best-effort planning guard, not a security sandbox. The rule set is deliberately bounded rather than attempting to parse every shell grammar or program.
+
+## Test
+
+```powershell
+node --test configs/global/.pi/agent/extensions/plan/tests/plan.test.ts
+```
+
+The focused suite covers unified entry behavior, pending/settled transitions, run-mode locking, inactive notices, Execute follow-up, startup/branch restoration, context cleanup, tool restoration, and static Subagent decoupling.

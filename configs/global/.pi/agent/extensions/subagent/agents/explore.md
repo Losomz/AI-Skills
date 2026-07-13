@@ -2,7 +2,6 @@
 name: Explore
 description: 一个用于探索代码库的快速只读代理。无法修改文件。当需要按模式快速查找文件、搜索代码关键字或回答代码库问题时使用。
 tools: read, grep, find, ls, bash
-planMode: auto
 model: openai-codex/gpt-5.3-codex-spark
 ---
 

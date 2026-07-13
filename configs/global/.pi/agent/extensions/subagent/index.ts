@@ -39,7 +39,7 @@ function getAgentCapability(agent: AgentConfig): string {
 function formatAgentInventoryLine(agent: AgentConfig): string {
 	const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(",") : "default/full";
 	const model = agent.model ? `, model:${agent.model}` : "";
-	return `- ${agent.name}: ${getAgentCapability(agent)}, planMode:${agent.planMode}, tools:${tools}${model}. ${agent.description}`;
+	return `- ${agent.name}: ${getAgentCapability(agent)}, tools:${tools}${model}. ${agent.description}`;
 }
 
 function formatAgentInventory(agents: AgentConfig[]): string {
@@ -52,90 +52,6 @@ function formatAgentInventory(agents: AgentConfig[]): string {
 
 function buildSubagentSystemHint(agents: AgentConfig[]): string {
 	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
-}
-
-function contentToText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.map((part) => {
-			if (typeof part === "string") return part;
-			if (part && typeof part === "object" && "text" in part && typeof part.text === "string") return part.text;
-			return "";
-		})
-		.filter(Boolean)
-		.join("\n");
-}
-
-function isPlanEnabled(ctx: ExtensionContext): boolean {
-	const entry = ctx.sessionManager
-		.getEntries()
-		.filter((e: { type: string; customType?: string }) => e.type === "custom" && (e.customType === "plan-state" || e.customType === "plan-mode"))
-		.pop() as { data?: { enabled?: boolean } } | undefined;
-	return entry?.data?.enabled === true;
-}
-
-function getLatestUserText(ctx: ExtensionContext): string {
-	const entries = ctx.sessionManager.getBranch();
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i] as { type?: string; message?: { role?: string; content?: unknown } };
-		if (entry.type === "message" && entry.message?.role === "user") return contentToText(entry.message.content);
-	}
-	return "";
-}
-
-function hasNegatedAgentMention(text: string, agentName: string): boolean {
-	const lowerText = text.toLowerCase();
-	const lowerName = agentName.toLowerCase();
-	const index = lowerText.indexOf(lowerName);
-	if (index < 0) return false;
-	const prefix = lowerText.slice(Math.max(0, index - 16), index);
-	return /(不要|别|禁止|不能|不允许|勿|do not|don't|dont|not)\s*$/.test(prefix);
-}
-
-function isExplicitlyRequestedByUser(ctx: ExtensionContext, agentName: string): boolean {
-	const latestUserText = getLatestUserText(ctx);
-	if (!latestUserText.toLowerCase().includes(agentName.toLowerCase())) return false;
-	return !hasNegatedAgentMention(latestUserText, agentName);
-}
-
-function getRequestedSubagentNames(input: {
-	agent?: string;
-	tasks?: Array<{ agent?: string }>;
-	chain?: Array<{ agent?: string }>;
-}): string[] {
-	const names = new Set<string>();
-	if (input.agent) names.add(input.agent);
-	for (const task of input.tasks ?? []) if (task.agent) names.add(task.agent);
-	for (const step of input.chain ?? []) if (step.agent) names.add(step.agent);
-	return Array.from(names);
-}
-
-function validatePlanSubagentCall(
-	input: { agent?: string; tasks?: Array<{ agent?: string }>; chain?: Array<{ agent?: string }> },
-	agents: AgentConfig[],
-	ctx: ExtensionContext,
-): string | undefined {
-	if (!isPlanEnabled(ctx)) return undefined;
-
-	const denied: string[] = [];
-	const needsExplicitUserRequest: string[] = [];
-	for (const requestedName of getRequestedSubagentNames(input)) {
-		const agent = findAgentByName(agents, requestedName);
-		const canonicalName = agent?.name ?? requestedName;
-		const policy = agent?.planMode ?? "explicit";
-		if (policy === "deny") denied.push(canonicalName);
-		else if (policy === "explicit") needsExplicitUserRequest.push(canonicalName);
-	}
-
-	if (denied.length > 0) return `Plan: subagent blocked by agent policy: ${denied.join(", ")}.`;
-
-	const missingExplicitRequest = needsExplicitUserRequest.filter((name) => !isExplicitlyRequestedByUser(ctx, name));
-	if (missingExplicitRequest.length > 0) {
-		return `Plan: writable or unrestricted subagents require an explicit user request. Blocked: ${missingExplicitRequest.join(", ")}. Ask the user to name the subagent if they want it to run.`;
-	}
-
-	return undefined;
 }
 
 type RunStatus = "pending" | "running" | "completed" | "failed" | "aborted";
@@ -909,15 +825,6 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: formatAgentInventory(agents) }],
 					details: makeDetails("single")([]),
-				};
-			}
-
-			const planPolicyReason = validatePlanSubagentCall(params, agents, ctx);
-			if (planPolicyReason) {
-				return {
-					content: [{ type: "text", text: planPolicyReason }],
-					details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
-					isError: true,
 				};
 			}
 
