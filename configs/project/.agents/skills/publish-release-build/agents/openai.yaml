@@ -1,0 +1,7 @@
+interface:
+  display_name: "发布并触发构建"
+  short_description: "安全发布版本并触发仓库既有的标签构建流程，并核验最终标签状态"
+  default_prompt: "Use $publish-release-build to safely publish this repository release and trigger its verified tag-driven build workflow."
+
+policy:
+  allow_implicit_invocation: false

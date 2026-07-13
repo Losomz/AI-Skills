@@ -16,6 +16,7 @@ type BlogWorkflow = {
 	agent: string;
 	preCommit: boolean;
 	preCommitAgent: string;
+	confirmDirtyWorktree: boolean;
 	body: string;
 	filePath: string;
 };
@@ -90,6 +91,7 @@ function loadWorkflowFile(filePath: string): BlogWorkflow | null {
 		agent: toStringValue(frontmatter.agent) || DEFAULT_BLOG_AGENT,
 		preCommit: parseBoolean(frontmatter.preCommit, true),
 		preCommitAgent: toStringValue(frontmatter.preCommitAgent) || DEFAULT_PRE_COMMIT_AGENT,
+		confirmDirtyWorktree: parseBoolean(frontmatter.confirmDirtyWorktree, false),
 		body: body.trim(),
 		filePath,
 	};
@@ -176,7 +178,7 @@ async function ensureGitRepository(pi: ExtensionAPI, ctx: ExtensionContext): Pro
 
 function buildWorkflowTask(workflow: BlogWorkflow, coreStandard: string, includePrevious: boolean): string {
 	const previousBlock = includePrevious
-		? `## 上一阶段结果\n\n{previous}\n\n请先阅读上一阶段结果。如果前置提交阶段明确表示提交失败、推送失败、发现敏感文件或工作区不安全，立即停止并说明原因，不要继续生成日志。\n\n`
+		? `## 上一阶段结果\n\n{previous}\n\n请先阅读上一阶段结果。如果前置提交阶段明确表示提交失败、推送失败、发现敏感文件或工作区不安全，立即停止并说明原因，不要继续执行工作流。如果上一阶段因用户明确指定 no-push 而仅跳过推送，这不是失败；可继续本地流程，但后续任何 branch/tag push 也必须跳过。\n\n`
 		: "";
 	const coreStandardBlock = coreStandard.trim()
 		? `## 用户核心标准\n\n请以以下内容作为本次日志筛选、摘要角度、写法和内容取舍的核心标准：\n\n${coreStandard.trim()}`
@@ -185,13 +187,21 @@ function buildWorkflowTask(workflow: BlogWorkflow, coreStandard: string, include
 	return `${previousBlock}${workflow.body}\n\n${coreStandardBlock}`;
 }
 
+function buildPreCommitTask(preCommitPrompt: string, coreStandard: string): string {
+	const coreStandardBlock = coreStandard.trim()
+		? `## 用户核心标准\n\n${coreStandard.trim()}`
+		: "## 用户核心标准\n\n（无，按前置结余默认规则执行）";
+
+	return `${preCommitPrompt}\n\n${coreStandardBlock}`;
+}
+
 function buildWorkflowPrompt(workflow: BlogWorkflow, coreStandard: string): string | null {
 	const chain: Array<{ agent: string; task: string }> = [];
 
 	if (workflow.preCommit) {
 		const preCommitPrompt = readPreCommitPrompt();
 		if (!preCommitPrompt) return null;
-		chain.push({ agent: workflow.preCommitAgent, task: preCommitPrompt });
+		chain.push({ agent: workflow.preCommitAgent, task: buildPreCommitTask(preCommitPrompt, coreStandard) });
 	}
 
 	chain.push({
@@ -232,6 +242,33 @@ async function handleBlogWorkflow(pi: ExtensionAPI, ctx: ExtensionContext, workf
 
 	const coreStandard = await promptBlogCoreStandard(ctx, extraInstructions);
 	if (coreStandard === undefined) return;
+
+	if (workflow.confirmDirtyWorktree) {
+		const worktreeStatus = await execText(pi, "git", ["status", "--porcelain"]);
+		if (worktreeStatus.code !== 0) {
+			ctx.ui.notify(`Unable to inspect git worktree: ${worktreeStatus.stderr.trim() || "git status failed"}`, "error");
+			return;
+		}
+
+		if (worktreeStatus.stdout.trim()) {
+			if (!ctx.hasUI) {
+				ctx.ui.notify(
+					"Worktree has uncommitted changes. This workflow requires explicit approval before the pre-commit settlement stage, but no UI is available.",
+					"error",
+				);
+				return;
+			}
+
+			const approved = await ctx.ui.confirm(
+				"允许结余当前工作区改动？",
+				"发布工作流会先审核现有改动，排除敏感或无关文件后创建提交，并按用户核心标准决定是否推送（明确 no-push/不推送时仅作本地结余）。",
+			);
+			if (!approved) {
+				ctx.ui.notify("Blog workflow cancelled; no subagent was started", "info");
+				return;
+			}
+		}
+	}
 
 	const prompt = buildWorkflowPrompt(workflow, coreStandard);
 	if (!prompt) {

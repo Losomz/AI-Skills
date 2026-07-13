@@ -2,7 +2,7 @@
 
 个人 AI Agent 配置与模板仓库。
 
-本仓库用于沉淀可复用的全局 / 项目级 Agent 配置、Pi 扩展、初始化模板、OpenCode skills、Codex 配置和相关说明文档。
+本仓库用于沉淀可复用的全局 / 项目级 Agent 配置、Pi 扩展、初始化模板、OpenCode skills、Codex Skills、Codex 配置和相关说明文档。
 
 ## 当前目录结构
 
@@ -27,8 +27,8 @@ AgentFramework/
 │   │       ├── skills/
 │   │       └── themes/
 │   └── project/                     # 项目级配置源
-│       ├── .opencode/               # OpenCode commands / skills
-│       └── .pi/                     # 项目级 Pi 配置 / 扩展示例
+│       ├── .agents/                 # 项目级 Codex Skills
+│       └── .opencode/               # OpenCode commands / skills
 ├── docs/
 │   ├── TECH_CHANGELOG.md
 │   └── pi-global-config.md
@@ -101,6 +101,8 @@ configs/global/.pi/agent/extensions/
 
 每个扩展目录下的 `README.md` 记录该扩展的具体命令、结构和维护方式。
 
+`/blog` 仅维护上述全局源；项目模板不再保留项目级副本。同步全局配置后执行 `/reload` 即可使用最新流程。
+
 ## `/init` 模板
 
 `/init` 扩展目录：
@@ -142,11 +144,23 @@ configs/project/
 常见映射：
 
 ```text
+configs/project/.agents/   -> <project>/.agents/
 configs/project/.opencode/ -> <project>/.opencode/
-configs/project/.pi/       -> <project>/.pi/
 ```
 
 `AGENTS.md` 是项目上下文文件，通常放在项目根目录，不放在 `.pi/` 里。
+
+### Codex Skills
+
+Codex 项目级 Skill 模板源位于：
+
+```text
+configs/project/.agents/skills/
+```
+
+当前包含：
+
+- `publish-release-build/`：安全准备发布说明、合并发布分支并以标签触发目标仓库已有的 CI 构建流程。
 
 ### OpenCode
 
@@ -161,16 +175,6 @@ configs/project/.opencode/
 - `commands/`：OpenCode 命令模板，如 commit、changelog。
 - `skills/`：OpenCode skills，包括 Cocos、Unity、中文编码等。
 - `opencode.json`：OpenCode 配置文件。
-
-### Pi 项目级配置
-
-Pi 项目级配置源位于：
-
-```text
-configs/project/.pi/
-```
-
-当前主要保留项目级扩展示例，例如 `extensions/blog/`。项目级配置会覆盖或合并全局 Pi 配置。
 
 ## 通用 agent 文档
 
@@ -191,5 +195,5 @@ configs/global/.pi/agent/extensions/init/templates/
 - 不要把运行时数据、登录凭据、会话记录、缓存目录提交进模板源。
 - Pi 全局配置同步时只覆盖被管理的文件或子目录，不要整体替换 `~/.pi/agent/`。
 - `/init` 模板只提供可复用检查项，目标项目的命令、路径、框架事实必须重新核验。
-- OpenCode skills、Pi extensions、Codex agents 分别维护在各自配置目录，避免混放。
+- OpenCode skills、Pi extensions、Codex agents / skills 分别维护在各自配置目录，避免混放。
 - 历史变更记录见 `docs/TECH_CHANGELOG.md`。
