@@ -1,40 +1,19 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-
-/** Discover agent names from subagent's agents/ dirs (both user and project). */
-function discoverAgentNames(cwd: string): string[] {
-	const names: string[] = [];
-
-	// Project agents dir: <cwd>/agents/
-	const projectDir = path.join(cwd, "agents");
-	// Global subagent agents dir: ~/.pi/agent/extensions/subagent/agents/
-	const agentDir = process.env.PI_CODING_AGENT_DIR
-		|| path.join(process.env.HOME || process.env.USERPROFILE || "", ".pi", "agent");
-	const globalDir = path.join(agentDir, "extensions", "subagent", "agents");
-
-	for (const dir of [projectDir, globalDir]) {
-		if (!fs.existsSync(dir)) continue;
-		try {
-			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-				if (!entry.name.endsWith(".md")) continue;
-				if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-				const content = fs.readFileSync(path.join(dir, entry.name), "utf-8");
-				const { frontmatter } = parseFrontmatter<Record<string, string>>(content);
-				const name = frontmatter.name || path.basename(entry.name, ".md");
-				if (name) names.push(name);
-			}
-		} catch { /* skip unreadable dirs */ }
-	}
-
-	return [...new Set(names)];
-}
+import { discoverAgents } from "../../subagent/agents.js";
+import { runAgentInIsolatedProcess } from "../../subagent/index.js";
 
 const DEFAULT_COMMIT_AGENT = "General";
 
 function chooseCommitAgent(requestedAgent?: string): string {
 	return requestedAgent || DEFAULT_COMMIT_AGENT;
+}
+
+function reportCommitStatus(ctx: ExtensionContext, message: string, level: "info" | "error"): void {
+	if (ctx.hasUI) {
+		ctx.ui.notify(message, level);
+		return;
+	}
+	process.stderr.write(`${message}\n`);
 }
 
 async function promptCommitCoreStandard(ctx: ExtensionContext, extraInstructions: string): Promise<string | undefined> {
@@ -57,9 +36,9 @@ export default {
 	value: "commit",
 	order: 1,
 	label: "commit",
-	description: "委派子 agent 完整完成提交（不自动推送）",
+	description: "在独立 Pi 进程中完成提交（不自动推送）",
 
-	async handle(pi: ExtensionAPI, ctx: ExtensionContext, parsed?: { agent?: string; extraInstructions?: string }): Promise<void> {
+	async handle(_pi: ExtensionAPI, ctx: ExtensionContext, parsed?: { agent?: string; extraInstructions?: string }): Promise<void> {
 		const agentName = chooseCommitAgent(parsed?.agent);
 		const coreStandard = await promptCommitCoreStandard(ctx, parsed?.extraInstructions ?? "");
 		if (coreStandard === undefined) return;
@@ -129,32 +108,41 @@ export default {
 主 agent 不参与 git 检查、diff 分析、提交信息生成或执行。
 所有 git 操作都必须由你在子 agent 进程内完成。${extraBlock}`;
 
-		const contextMessage = `请立即调用 \`subagent\` 工具，把 Git 提交任务完整委派给指定子 agent：\`${agentName}\`。
+		reportCommitStatus(ctx, `正在独立 Pi 子进程中执行 Git commit（${agentName}）...`, "info");
 
-主 agent 不要检查 git 状态、不要读取 diff、不要生成提交信息、不要执行 \`git add\` / \`git commit\` / \`git push\`；提交必须由子 agent 进程完成。子 agent 返回后，请只用中文简要总结结果。
+		try {
+			const result = await runAgentInIsolatedProcess(ctx, {
+				agent: agentName,
+				task: commitTask,
+				agentScope: "project",
+				cwd: ctx.cwd,
+				signal: ctx.signal,
+			});
+			const pid = result.pid ? `，PID ${result.pid}` : "";
+			if (result.failed) {
+				reportCommitStatus(
+					ctx,
+					`Git commit 子进程失败（退出码 ${result.exitCode}${pid}）：\n${result.output}`,
+					"error",
+				);
+				return;
+			}
 
-参数：
-
-\`\`\`json
-{
-  "agent": ${JSON.stringify(agentName)},
-  "task": ${JSON.stringify(commitTask)},
-  "agentScope": "project",
-  "confirmProjectAgents": false
-}
-\`\`\``;
-
-		pi.sendUserMessage(contextMessage);
+			reportCommitStatus(ctx, `Git commit 子进程已完成${pid}：\n${result.output}`, "info");
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			reportCommitStatus(ctx, `Git commit 子进程异常：${message}`, "error");
+		}
 	},
 
 	getCompletions(prefix: string) {
 		const parts = prefix.trim().split(/\s+/).filter(Boolean);
 		const agentPrefix = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
-		const agentNames = discoverAgentNames(process.cwd());
-		const items = agentNames.map((name) => ({
-			value: `commit ${name}`,
-			label: name,
-			description: `使用 ${name} 子 agent 执行提交`,
+		const discovery = discoverAgents(process.cwd(), "project");
+		const items = discovery.agents.map((agent) => ({
+			value: `commit ${agent.name}`,
+			label: agent.name,
+			description: `使用 ${agent.name} 子 agent 执行提交`,
 		}));
 		const filtered = items.filter((item) => item.label.toLowerCase().startsWith(agentPrefix));
 		return filtered.length > 0 ? filtered : null;

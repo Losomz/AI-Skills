@@ -358,9 +358,9 @@ async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 ): Promise<SingleResult> {
-	const runId = createRunId(agentName);
+	const agent = findAgentByName(agents, agentName);
+	const runId = createRunId(agent?.name ?? agentName);
 	const startedAt = Date.now();
-	const agent = agents.find((a) => a.name === agentName);
 
 	if (!agent) {
 		const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
@@ -385,7 +385,7 @@ async function runSingleAgent(
 
 	const currentResult: SingleResult = {
 		runId,
-		agent: agentName,
+		agent: agent.name,
 		agentSource: agent.source,
 		task,
 		exitCode: 0,
@@ -430,7 +430,7 @@ async function runSingleAgent(
 			currentResult.status = "running";
 			activeRuns.set(runId, {
 				runId,
-				agent: agentName,
+				agent: agent.name,
 				task,
 				model: currentResult.model,
 				pid: proc.pid,
@@ -504,7 +504,10 @@ async function runSingleAgent(
 				resolve(exit);
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (error) => {
+				const message = `Failed to start Pi subprocess: ${error.message}`;
+				currentResult.errorMessage = message;
+				currentResult.stderr = currentResult.stderr ? `${currentResult.stderr}\n${message}` : message;
 				currentResult.status = "failed";
 				currentResult.endedAt = Date.now();
 				activeRuns.delete(runId);
@@ -543,6 +546,66 @@ async function runSingleAgent(
 				/* ignore */
 			}
 	}
+}
+
+export interface IsolatedAgentProcessOptions {
+	agent: string;
+	task: string;
+	agentScope?: AgentScope;
+	cwd?: string;
+	signal?: AbortSignal;
+}
+
+export interface IsolatedAgentProcessResult {
+	agent: string;
+	exitCode: number;
+	output: string;
+	stderr: string;
+	failed: boolean;
+	pid?: number;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+/**
+ * Run one configured agent in an ephemeral Pi subprocess without creating a
+ * parent-session message or tool result. Callers decide how to display output.
+ */
+export async function runAgentInIsolatedProcess(
+	ctx: ExtensionContext,
+	options: IsolatedAgentProcessOptions,
+): Promise<IsolatedAgentProcessResult> {
+	const agentScope = options.agentScope ?? "project";
+	const discovery = discoverAgents(ctx.cwd, agentScope);
+	const makeDetails = (results: SingleResult[]): SubagentDetails => ({
+		mode: "single",
+		agentScope,
+		projectAgentsDir: discovery.projectAgentsDir,
+		results,
+	});
+	const result = await runSingleAgent(
+		ctx,
+		ctx.cwd,
+		discovery.agents,
+		options.agent,
+		options.task,
+		options.cwd,
+		undefined,
+		options.signal,
+		undefined,
+		makeDetails,
+	);
+
+	return {
+		agent: result.agent,
+		exitCode: result.exitCode,
+		output: getResultOutput(result),
+		stderr: result.stderr,
+		failed: isFailedResult(result),
+		pid: result.pid,
+		stopReason: result.stopReason,
+		errorMessage: result.errorMessage,
+	};
 }
 
 const TaskItem = Type.Object({

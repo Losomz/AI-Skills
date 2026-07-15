@@ -1,10 +1,19 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../../subagent/agents.js";
+import { runAgentInIsolatedProcess } from "../../subagent/index.js";
 
 const DEFAULT_COMMIT_AGENT = "General";
 
 function chooseCommitAgent(requestedAgent?: string): string {
 	return requestedAgent || DEFAULT_COMMIT_AGENT;
+}
+
+function reportCommitStatus(ctx: ExtensionContext, message: string, level: "info" | "error"): void {
+	if (ctx.hasUI) {
+		ctx.ui.notify(message, level);
+		return;
+	}
+	process.stderr.write(`${message}\n`);
 }
 
 async function promptCommitCoreStandard(ctx: ExtensionContext, extraInstructions: string): Promise<string | undefined> {
@@ -27,9 +36,9 @@ export default {
 	value: "commit",
 	order: 1,
 	label: "commit",
-	description: "委派子 agent 完整完成提交和推送",
+	description: "在独立 Pi 进程中完成提交和推送",
 
-	async handle(pi: ExtensionAPI, ctx: ExtensionContext, parsed?: { agent?: string; extraInstructions?: string }): Promise<void> {
+	async handle(_pi: ExtensionAPI, ctx: ExtensionContext, parsed?: { agent?: string; extraInstructions?: string }): Promise<void> {
 		const agentName = chooseCommitAgent(parsed?.agent);
 		const coreStandard = await promptCommitCoreStandard(ctx, parsed?.extraInstructions ?? "");
 		if (coreStandard === undefined) return;
@@ -98,22 +107,31 @@ export default {
 主 agent 不参与 git 检查、diff 分析、提交信息生成或执行。
 所有 git 操作都必须由你在子 agent 进程内完成。${extraBlock}`;
 
-		const contextMessage = `请立即调用 \`subagent\` 工具，把 Git 提交任务完整委派给指定子 agent：\`${agentName}\`。
+		reportCommitStatus(ctx, `正在独立 Pi 子进程中执行 Git commit（${agentName}）...`, "info");
 
-主 agent 不要检查 git 状态、不要读取 diff、不要生成提交信息、不要执行 \`git add\` / \`git commit\` / \`git push\`；提交和推送必须由子 agent 进程完成。子 agent 返回后，请只用中文简要总结结果。
+		try {
+			const result = await runAgentInIsolatedProcess(ctx, {
+				agent: agentName,
+				task: commitTask,
+				agentScope: "project",
+				cwd: ctx.cwd,
+				signal: ctx.signal,
+			});
+			const pid = result.pid ? `，PID ${result.pid}` : "";
+			if (result.failed) {
+				reportCommitStatus(
+					ctx,
+					`Git commit 子进程失败（退出码 ${result.exitCode}${pid}）：\n${result.output}`,
+					"error",
+				);
+				return;
+			}
 
-参数：
-
-\`\`\`json
-{
-  "agent": ${JSON.stringify(agentName)},
-  "task": ${JSON.stringify(commitTask)},
-  "agentScope": "project",
-  "confirmProjectAgents": false
-}
-\`\`\``;
-
-		pi.sendUserMessage(contextMessage);
+			reportCommitStatus(ctx, `Git commit 子进程已完成${pid}：\n${result.output}`, "info");
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			reportCommitStatus(ctx, `Git commit 子进程异常：${message}`, "error");
+		}
 	},
 
 	getCompletions(prefix: string) {

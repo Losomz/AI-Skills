@@ -2,7 +2,7 @@
  * Git Extension (Project-local)
  *
  * Provides a layered /git command with operations in the desired order:
- *   1. commit  — 委派子 agent 完整完成提交和推送
+ *   1. commit  — 在独立 Pi 子进程中完成提交（不自动推送）
  *   2. pull    — 拉取远端变更并处理未提交改动
  *   3. branch  — 切换或创建分支
  *
@@ -104,8 +104,14 @@ export default function (pi: ExtensionAPI) {
 				let agent: string | undefined;
 				let extraParts: string[] = [];
 
+				const { discoverAgents } = await import("../subagent/agents.js");
+				const availableAgents = discoverAgents(ctx.cwd, "project").agents.map((item) => item.name);
+
 				if (rest[0] === "--agent" || rest[0] === "-a") {
 					rest.shift();
+					agent = rest.shift();
+					extraParts = rest;
+				} else if (rest[0] && availableAgents.some((item) => item.toLowerCase() === rest[0].toLowerCase())) {
 					agent = rest.shift();
 					extraParts = rest;
 				} else {

@@ -95,7 +95,7 @@ export default function (pi: ExtensionAPI) {
 
 				// Lazy import discoverAgents only when needed
 				const { discoverAgents } = await import("../subagent/agents.js");
-				const availableAgents = discoverAgents(process.cwd(), "project").agents.map((a) => a.name);
+				const availableAgents = discoverAgents(ctx.cwd, "project").agents.map((a) => a.name);
 
 				if (rest[0] === "--agent" || rest[0] === "-a") {
 					rest.shift();

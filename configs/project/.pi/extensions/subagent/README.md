@@ -106,6 +106,10 @@ Subagents running:
   ⏳ Explore pid=1234 8s — 查找资源加载相关代码
 ```
 
+## Direct Process API
+
+Bundled command extensions can import `runAgentInIsolatedProcess()` from `subagent/index.ts` when they need an agent process without creating a parent tool call. It launches the selected agent with `--mode json -p --no-session`, returns the captured final result to the caller, and only updates the running widget. The helper does not send or append any parent-session message; callers should use UI-only notifications if the result must remain outside the parent conversation context.
+
 ## Worktree Isolation
 
 Current version does **not** use Git worktree isolation.
