@@ -105,6 +105,12 @@ Subagents running:
   ⏳ Explore pid=1234 8s — 查找资源加载相关代码
 ```
 
+## Direct Isolated Runner
+
+Trusted sibling extensions can call `runAgentInIsolatedProcess()` to run one configured agent without creating a parent-session message or `subagent` tool result. The runner uses the same ephemeral JSON process path as the tool (`--mode json -p --no-session`) and returns a normalized result to the caller.
+
+Direct callers are responsible for displaying progress and results through non-conversation UI such as status items or notifications. `/git commit` uses this path so its delegation prompt, child output, and summary do not enter the main agent context.
+
 ## Worktree Isolation
 
 Current version does **not** use Git worktree isolation.

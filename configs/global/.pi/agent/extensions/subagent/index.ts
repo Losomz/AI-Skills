@@ -23,6 +23,7 @@ import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme, withFileMut
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, findAgentByName } from "./agents.js";
+import { buildAgentProcessArgs } from "./process-args.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -401,10 +402,6 @@ async function runSingleAgent(
 		};
 	}
 
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
-	if (agent.model) args.push("--model", agent.model);
-	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
-
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
 
@@ -438,10 +435,9 @@ async function runSingleAgent(
 			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
 			tmpPromptDir = tmp.dir;
 			tmpPromptPath = tmp.filePath;
-			args.push("--append-system-prompt", tmpPromptPath);
 		}
 
-		args.push(`Task: ${task}`);
+		const args = buildAgentProcessArgs(agent, task, tmpPromptPath ?? undefined);
 		let wasAborted = false;
 
 		const exitCode = await new Promise<number>((resolve) => {
@@ -529,7 +525,10 @@ async function runSingleAgent(
 				resolve(exit);
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (error) => {
+				const message = `Failed to start Pi subprocess: ${error.message}`;
+				currentResult.errorMessage = message;
+				currentResult.stderr = currentResult.stderr ? `${currentResult.stderr}\n${message}` : message;
 				currentResult.status = "failed";
 				currentResult.endedAt = Date.now();
 				activeRuns.delete(runId);
@@ -568,6 +567,66 @@ async function runSingleAgent(
 				/* ignore */
 			}
 	}
+}
+
+export interface IsolatedAgentProcessOptions {
+	agent: string;
+	task: string;
+	agentScope?: AgentScope;
+	cwd?: string;
+	signal?: AbortSignal;
+}
+
+export interface IsolatedAgentProcessResult {
+	agent: string;
+	exitCode: number;
+	output: string;
+	stderr: string;
+	failed: boolean;
+	pid?: number;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+/**
+ * Run one configured agent in an ephemeral Pi subprocess without creating a
+ * parent-session message or tool result. Callers decide how to display output.
+ */
+export async function runAgentInIsolatedProcess(
+	ctx: ExtensionContext,
+	options: IsolatedAgentProcessOptions,
+): Promise<IsolatedAgentProcessResult> {
+	const agentScope = options.agentScope ?? "project";
+	const discovery = discoverAgents(ctx.cwd, agentScope);
+	const makeDetails = (results: SingleResult[]): SubagentDetails => ({
+		mode: "single",
+		agentScope,
+		projectAgentsDir: discovery.projectAgentsDir,
+		results,
+	});
+	const result = await runSingleAgent(
+		ctx,
+		ctx.cwd,
+		discovery.agents,
+		options.agent,
+		options.task,
+		options.cwd,
+		undefined,
+		options.signal,
+		undefined,
+		makeDetails,
+	);
+
+	return {
+		agent: result.agent,
+		exitCode: result.exitCode,
+		output: getResultOutput(result),
+		stderr: result.stderr,
+		failed: isFailedResult(result),
+		pid: result.pid,
+		stopReason: result.stopReason,
+		errorMessage: result.errorMessage,
+	};
 }
 
 const TaskItem = Type.Object({

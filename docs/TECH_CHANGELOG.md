@@ -8,20 +8,24 @@
 
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
 - Plan 与 subagent 解除双向协议耦合：Plan 只保留 Pi 中已经注册且已激活的普通 `subagent` 工具，不再解析或约束子代理的 Plan 专属 policy；subagent 也不再读取 Plan 状态。
+- Subagent 提供可由可信扩展直接调用的隔离进程 runner；`/git commit` 将命令编排与运行时依赖装配分离，复用现有 JSON 子进程执行链路。
 
 ### 问题修复
 
 - 修复手动关闭 Plan 后隐藏提醒残留、分支间状态串扰及 Execute 偶发不继续的问题；手动退出现在仅同步模式并发送一次性 inactive 提醒，只有显式 Execute 才通过 `followUp` 触发执行。
 - Plan 状态升级为带 revision、工具快照与一次性通知的 v2 结构，兼容历史 `{ enabled }` 数据；恢复过程只读取当前分支且不重复写入状态。
+- 修复 `/git commit` 先向主会话注入委派消息、再把子代理工具结果传回主 Agent 的上下文污染；命令现在直接启动临时 Pi 子进程，并仅通过 UI 状态、通知或 stderr 报告结果。
 
 ### 测试/质量
 
 - 增加基于 Node `node:test` 的 Plan 回归覆盖，验证统一入口、pending 生命周期、上下文归一化、分支恢复、工具交集与主 Agent 写操作防护。
+- 增加 `/git commit` 隔离回归和子进程参数测试，覆盖父 Pi API 禁用、成功、取消、未知 agent、启动异常、非零退出、headless 输出及模型/工具/系统提示继承。
 
 ### 风险与迁移说明
 
 - Plan 的命令 denylist 仅是主 Agent 的辅助防护而非安全沙箱；已激活的可写/full-access subagent 仍可能修改工作区，需要通过 subagent 自身能力配置或禁用该工具进行隔离。
 - Plan 扩展最低要求 Pi 0.80.4，以使用稳定的 `agent_settled` 生命周期事件。
+- `/git commit` 只隔离父会话上下文，不隔离 worktree；子进程仍在真实 `ctx.cwd` 中提交和推送。同步全局扩展后必须执行 `/reload` 才会替换已加载模块。
 
 ## [v0.1.0] - 2026-06-30
 

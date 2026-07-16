@@ -5,8 +5,8 @@ Layered Git command for Pi.
 ## Commands
 
 - `/git` - choose a Git operation from a menu with descriptions.
-- `/git commit` - delegate the entire commit workflow to the default commit subagent (`General`) without inspecting status or diff in the main agent; prompts for an optional core standard before delegation.
-- `/git commit <agent>` or `/git commit --agent <agent>` - use a specific subagent for the commit workflow.
+- `/git commit` - start an ephemeral Pi subprocess with the default commit agent (`General`); prompts for an optional core standard before launch.
+- `/git commit <agent>` or `/git commit --agent <agent>` - use a specific agent in the isolated subprocess.
 - `/git commit ...核心要求` - 在不指定 agent 的情况下，把后面的内容作为本次提交的核心标准传给提交流程，不再弹输入框。
 - `/git commit <agent> ...核心要求` - 指定 subagent 的同时，附加本次提交核心标准，不再弹输入框。
 - `/git pull` - pull from the current branch with dirty-tree handling.
@@ -16,11 +16,14 @@ Layered Git command for Pi.
 
 ```
 git/
-├── index.ts          # 入口：自动发现 operations/ 下的操作模块
+├── index.ts              # 入口：自动发现 operations/ 下的操作模块
+├── commit-operation.ts   # 可测试的 commit 命令与 UI-only 报告逻辑
 ├── operations/
-│   ├── commit.ts     # /git commit
-│   ├── pull.ts       # /git pull
-│   └── branch.ts     # /git branch
+│   ├── commit.ts         # /git commit 运行时依赖装配
+│   ├── pull.ts           # /git pull
+│   └── branch.ts         # /git branch
+├── tests/
+│   └── commit.test.ts
 └── README.md
 ```
 
@@ -45,18 +48,22 @@ git/
 
 ### commit
 
-Sends a fixed delegation template to the main agent that instructs it to immediately call the `subagent` tool.
+Calls `runAgentInIsolatedProcess()` directly from the command handler. The runner starts a separate Pi process with `--mode json -p --no-session`, applies the selected agent's prompt/model/tools, and waits for it to finish.
+
+The command never calls `pi.sendUserMessage()`, `pi.sendMessage()`, or `pi.appendEntry()`. Progress and the final child summary are shown only through Pi UI status/notifications (or stderr in headless mode), so no delegation prompt, tool call, tool result, or summary is added to the parent conversation context.
 
 If no inline core requirement is provided, `/git commit` first opens an optional input box. Leaving it empty uses the default workflow; entering text makes that content the core standard for change selection, analysis, and commit message generation.
 
-The main agent does **not** inspect git state, read diffs, generate commit messages, or run git write commands. The selected subagent performs the entire workflow with **sub-repo first** ordering:
+The child process performs the entire workflow with **sub-repo first** ordering:
 
 1. **Discover sub-repos**: `git submodule status` + scan for nested `.git` directories
 2. **Commit sub-repos** (deepest path first)
 3. **Commit main repo** (picks up sub-repo reference updates)
-4. Report conflicts, empty changes, commit failures, or push failures
+4. Report conflicts, empty changes, commit failures, or push failures through a UI-only notification
 
-Default commit subagent: `General`.
+Default commit agent: `General`.
+
+This is **conversation isolation, not worktree isolation**: the child has an ephemeral context/session but intentionally operates on the same `ctx.cwd` workspace so it can commit and push the real repository changes. The final report is not persisted in the parent session.
 
 Examples:
 
