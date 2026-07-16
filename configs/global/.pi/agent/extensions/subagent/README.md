@@ -109,7 +109,7 @@ Subagents running:
 
 Trusted sibling extensions can call `runAgentInIsolatedProcess()` to start an independent Pi process without creating a parent-session message or `subagent` tool result. The new process runs its own main agent with the selected configuration. The runner uses the same ephemeral JSON process path as the tool (`--mode json -p --no-session`) and returns a normalized result containing status, PID, model, start/end time, exit code, and final output.
 
-`IsolatedAgentProcessOptions.onUpdate` receives lifecycle updates as the process starts, runs, and reaches a terminal state. Direct calls deliberately do not publish into the shared `subagent-runs` widget; the caller owns its UI and persistence policy. `/git commit` uses a temporary status/widget while running, then appends a Pi custom entry that is persisted for display but excluded from LLM context. It never sends a delegation prompt, child output, or summary as a parent message.
+`IsolatedAgentProcessOptions.onUpdate` receives lifecycle updates as the process starts, runs, and reaches a terminal state. Direct calls deliberately do not publish into the shared `subagent-runs` widget; the caller owns its UI and persistence policy. `/git commit` uses a temporary status/widget while running in the background, then reports completion with a UI notification and stderr. It never sends a delegation prompt, child output, custom entry, or summary as a parent message.
 
 ## Worktree Isolation
 

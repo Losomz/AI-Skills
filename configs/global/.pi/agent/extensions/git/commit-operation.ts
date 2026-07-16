@@ -90,6 +90,15 @@ function writeHeadlessDefault(message: string): void {
 	process.stderr.write(`${message}\n`);
 }
 
+interface ActiveCommitRun {
+	agent: string;
+	cwd: string;
+	pid?: number;
+	startedAt: number;
+}
+
+let activeCommitRun: ActiveCommitRun | undefined;
+
 function formatDuration(durationMs: number | undefined): string | undefined {
 	if (durationMs === undefined) return undefined;
 	const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -207,32 +216,36 @@ function formatHeadlessRecord(data: GitCommitRunEntryData): string {
 	return `Git commit 独立进程失败（退出码 ${data.exitCode ?? "unknown"}${pid}）：\n${data.output}`;
 }
 
-function reportCommitRecord(
-	pi: ExtensionAPI,
+function getOutputSummary(output: string): string {
+	return output
+		.trim()
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find(Boolean) ?? "(no output)";
+}
+
+function reportCommitNotification(
 	ctx: ExtensionContext,
 	writeHeadless: (message: string) => void,
 	data: GitCommitRunEntryData,
-	createWidget: CommitOperationDependencies["createWidget"],
 ): void {
 	if (!ctx.hasUI) {
 		writeHeadless(formatHeadlessRecord(data));
 		return;
 	}
 
-	try {
-		pi.appendEntry<GitCommitRunEntryData>(GIT_COMMIT_RUN_ENTRY_TYPE, data);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		setCommitWidget(
-			ctx,
-			{
-				...data,
-				output: `${data.output}\n\n[结果记录写入失败：${message}]`,
-			},
-			createWidget,
-		);
-		writeHeadless(`Git commit 结果记录写入失败：${message}`);
+	const duration = formatDuration(getDurationMs(data));
+	const pid = data.pid ? `，PID ${data.pid}` : "";
+	const elapsed = duration ? `，耗时 ${duration}` : "";
+	const summary = getOutputSummary(data.output);
+	if (data.status === "completed") {
+		ctx.ui.notify(`Git commit 已完成${pid}${elapsed}：${summary}`, "info");
+	} else if (data.status === "cancelled") {
+		ctx.ui.notify(`Git commit 已取消${pid}${elapsed}：${summary}`, "info");
+	} else {
+		ctx.ui.notify(`Git commit 失败${pid}${elapsed}：${summary}`, "error");
 	}
+	writeHeadless(formatHeadlessRecord(data));
 }
 
 function isCancelledRun(result: CommitAgentRunResult): boolean {
@@ -358,25 +371,26 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 		description: "在独立 Pi 进程中完成提交和推送",
 
 		async handle(
-			pi: ExtensionAPI,
+			_pi: ExtensionAPI,
 			ctx: ExtensionContext,
 			parsed?: CommitOperationArgs,
 		): Promise<void> {
 			const invokedAt = Date.now();
 			const agentName = chooseCommitAgent(parsed?.agent);
+			if (activeCommitRun) {
+				const pid = activeCommitRun.pid ? `，PID ${activeCommitRun.pid}` : "";
+				const duration = formatDuration(Date.now() - activeCommitRun.startedAt);
+				const elapsed = duration ? `，已运行 ${duration}` : "";
+				const message = `已有 Git commit 后台任务运行中：${activeCommitRun.agent}${pid}${elapsed}`;
+				if (ctx.hasUI) ctx.ui.notify(message, "info");
+				else writeHeadless(message);
+				return;
+			}
+
 			const coreStandard = await promptCommitCoreStandard(ctx, parsed?.extraInstructions ?? "");
 			if (coreStandard === undefined) {
-				const endedAt = Date.now();
-				reportCommitRecord(pi, ctx, writeHeadless, {
-					version: 1,
-					status: "cancelled",
-					agent: agentName,
-					cwd: ctx.cwd,
-					output: "用户取消，未启动独立 Pi 进程。",
-					startedAt: invokedAt,
-					endedAt,
-					durationMs: Math.max(0, endedAt - invokedAt),
-				}, dependencies.createWidget);
+				if (ctx.hasUI) ctx.ui.notify("Git commit 已取消，未启动独立 Pi 进程。", "info");
+				else writeHeadless("Git commit 已取消，未启动独立 Pi 进程。");
 				return;
 			}
 
@@ -388,6 +402,11 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 			};
 			const showRunningState = (update: CommitAgentRunUpdate): void => {
 				latestUpdate = { ...latestUpdate, ...update };
+				if (activeCommitRun) {
+					activeCommitRun.agent = latestUpdate.agent;
+					activeCommitRun.pid = latestUpdate.pid;
+					activeCommitRun.startedAt = latestUpdate.startedAt ?? activeCommitRun.startedAt;
+				}
 				const now = Date.now();
 				setCommitWidget(ctx, {
 					version: 1,
@@ -402,26 +421,30 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 					durationMs: latestUpdate.startedAt === undefined ? undefined : Math.max(0, now - latestUpdate.startedAt),
 				}, dependencies.createWidget);
 				const pid = latestUpdate.pid ? ` · pid=${latestUpdate.pid}` : "";
-				setCommitStatus(ctx, `Git 独立进程: ${latestUpdate.agent}${pid}`);
+				setCommitStatus(ctx, `Git 提交中: ${latestUpdate.agent}${pid}`);
+			};
+			activeCommitRun = {
+				agent: agentName,
+				cwd: ctx.cwd,
+				startedAt: latestUpdate.startedAt ?? invokedAt,
 			};
 			showRunningState(latestUpdate);
 			if (!ctx.hasUI) writeHeadless(`正在由独立 Pi 进程的主 agent 执行 Git commit（${agentName}）...`);
 
-			let record: GitCommitRunEntryData;
+			let runPromise: Promise<CommitAgentRunResult>;
 			try {
-				const result = await dependencies.runAgent(ctx, {
+				runPromise = dependencies.runAgent(ctx, {
 					agent: agentName,
 					task: commitTask,
 					agentScope: "project",
 					cwd: ctx.cwd,
 					onUpdate: showRunningState,
 				});
-				record = createTerminalRecord(result, latestUpdate, ctx.cwd, Date.now());
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const endedAt = Date.now();
 				const startedAt = latestUpdate.startedAt ?? invokedAt;
-				record = {
+				const record: GitCommitRunEntryData = {
 					version: 1,
 					status: isCancellationError(error) ? "cancelled" : "failed",
 					agent: latestUpdate.agent,
@@ -434,11 +457,41 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 					durationMs: Math.max(0, endedAt - startedAt),
 					errorMessage: message,
 				};
-			} finally {
 				setCommitWidget(ctx, undefined, dependencies.createWidget);
 				setCommitStatus(ctx, undefined);
+				activeCommitRun = undefined;
+				reportCommitNotification(ctx, writeHeadless, record);
+				return;
 			}
-			reportCommitRecord(pi, ctx, writeHeadless, record, dependencies.createWidget);
+
+			void runPromise
+				.then((result) => createTerminalRecord(result, latestUpdate, ctx.cwd, Date.now()))
+				.catch((error) => {
+					const message = error instanceof Error ? error.message : String(error);
+					const endedAt = Date.now();
+					const startedAt = latestUpdate.startedAt ?? invokedAt;
+					return {
+						version: 1,
+						status: isCancellationError(error) ? "cancelled" : "failed",
+						agent: latestUpdate.agent,
+						cwd: ctx.cwd,
+						output: message,
+						pid: latestUpdate.pid,
+						model: latestUpdate.model,
+						startedAt,
+						endedAt,
+						durationMs: Math.max(0, endedAt - startedAt),
+						errorMessage: message,
+					} satisfies GitCommitRunEntryData;
+				})
+				.then((record) => {
+					reportCommitNotification(ctx, writeHeadless, record);
+				})
+				.finally(() => {
+					setCommitWidget(ctx, undefined, dependencies.createWidget);
+					setCommitStatus(ctx, undefined);
+					activeCommitRun = undefined;
+				});
 		},
 
 		getCompletions(prefix: string) {
