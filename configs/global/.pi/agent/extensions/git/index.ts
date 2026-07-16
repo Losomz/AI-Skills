@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerCommitResultRenderer } from "./commit-renderer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const opsDir = path.join(__dirname, "operations");
@@ -44,6 +45,8 @@ function parseOperationChoice(choice: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
+	registerCommitResultRenderer(pi);
+
 	pi.registerCommand("git", {
 		description: "Git operations",
 		getArgumentCompletions: (prefix: string) => {

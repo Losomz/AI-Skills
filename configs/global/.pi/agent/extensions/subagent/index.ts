@@ -55,7 +55,8 @@ function buildSubagentSystemHint(agents: AgentConfig[]): string {
 	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
 }
 
-type RunStatus = "pending" | "running" | "completed" | "failed" | "aborted";
+export type IsolatedAgentProcessStatus = "pending" | "running" | "completed" | "failed" | "aborted";
+type RunStatus = IsolatedAgentProcessStatus;
 
 interface ActiveRun {
 	runId: string;
@@ -383,6 +384,7 @@ async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	showInSharedWidget = true,
 ): Promise<SingleResult> {
 	const agent = findAgentByName(agents, agentName);
 	const runId = createRunId(agent?.name ?? agentName);
@@ -427,7 +429,7 @@ async function runSingleAgent(
 				details: makeDetails([currentResult]),
 			});
 		}
-		updateSubagentWidget(ctx);
+		if (showInSharedWidget) updateSubagentWidget(ctx);
 	};
 
 	try {
@@ -449,18 +451,21 @@ async function runSingleAgent(
 			});
 			currentResult.pid = proc.pid;
 			currentResult.status = "running";
-			activeRuns.set(runId, {
-				runId,
-				agent: agent.name,
-				task,
-				model: currentResult.model,
-				pid: proc.pid,
-				status: "running",
-				startedAt,
-				updatedAt: Date.now(),
-			});
+			if (showInSharedWidget) {
+				activeRuns.set(runId, {
+					runId,
+					agent: agent.name,
+					task,
+					model: currentResult.model,
+					pid: proc.pid,
+					status: "running",
+					startedAt,
+					updatedAt: Date.now(),
+				});
+			}
 			emitUpdate();
 			let buffer = "";
+			let settled = false;
 
 			const processLine = (line: string) => {
 				if (!line.trim()) return;
@@ -516,6 +521,8 @@ async function runSingleAgent(
 			});
 
 			proc.on("close", (code) => {
+				if (settled) return;
+				settled = true;
 				if (buffer.trim()) processLine(buffer);
 				const exit = code ?? 0;
 				currentResult.status = wasAborted ? "aborted" : exit === 0 ? "completed" : "failed";
@@ -526,6 +533,8 @@ async function runSingleAgent(
 			});
 
 			proc.on("error", (error) => {
+				if (settled) return;
+				settled = true;
 				const message = `Failed to start Pi subprocess: ${error.message}`;
 				currentResult.errorMessage = message;
 				currentResult.stderr = currentResult.stderr ? `${currentResult.stderr}\n${message}` : message;
@@ -575,6 +584,16 @@ export interface IsolatedAgentProcessOptions {
 	agentScope?: AgentScope;
 	cwd?: string;
 	signal?: AbortSignal;
+	onUpdate?: (update: IsolatedAgentProcessUpdate) => void;
+}
+
+export interface IsolatedAgentProcessUpdate {
+	agent: string;
+	status: IsolatedAgentProcessStatus;
+	pid?: number;
+	model?: string;
+	startedAt?: number;
+	endedAt?: number;
 }
 
 export interface IsolatedAgentProcessResult {
@@ -584,8 +603,16 @@ export interface IsolatedAgentProcessResult {
 	stderr: string;
 	failed: boolean;
 	pid?: number;
+	status: IsolatedAgentProcessStatus;
+	model?: string;
+	startedAt?: number;
+	endedAt?: number;
 	stopReason?: string;
 	errorMessage?: string;
+}
+
+function getIsolatedProcessStatus(result: SingleResult): IsolatedAgentProcessStatus {
+	return result.status ?? (isFailedResult(result) ? "failed" : "completed");
 }
 
 /**
@@ -604,6 +631,22 @@ export async function runAgentInIsolatedProcess(
 		projectAgentsDir: discovery.projectAgentsDir,
 		results,
 	});
+	let lastUpdateSignature = "";
+	const emitLifecycleUpdate = (current: SingleResult): void => {
+		if (!options.onUpdate) return;
+		const update: IsolatedAgentProcessUpdate = {
+			agent: current.agent,
+			status: getIsolatedProcessStatus(current),
+			pid: current.pid,
+			model: current.model,
+			startedAt: current.startedAt,
+			endedAt: current.endedAt,
+		};
+		const signature = JSON.stringify(update);
+		if (signature === lastUpdateSignature) return;
+		lastUpdateSignature = signature;
+		options.onUpdate(update);
+	};
 	const result = await runSingleAgent(
 		ctx,
 		ctx.cwd,
@@ -613,9 +656,14 @@ export async function runAgentInIsolatedProcess(
 		options.cwd,
 		undefined,
 		options.signal,
-		undefined,
+		(partial) => {
+			const current = partial.details?.results[0];
+			if (current) emitLifecycleUpdate(current);
+		},
 		makeDetails,
+		false,
 	);
+	emitLifecycleUpdate(result);
 
 	return {
 		agent: result.agent,
@@ -624,6 +672,10 @@ export async function runAgentInIsolatedProcess(
 		stderr: result.stderr,
 		failed: isFailedResult(result),
 		pid: result.pid,
+		status: getIsolatedProcessStatus(result),
+		model: result.model,
+		startedAt: result.startedAt,
+		endedAt: result.endedAt,
 		stopReason: result.stopReason,
 		errorMessage: result.errorMessage,
 	};

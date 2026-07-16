@@ -5,10 +5,10 @@ Layered Git command for Pi.
 ## Commands
 
 - `/git` - choose a Git operation from a menu with descriptions.
-- `/git commit` - start an ephemeral Pi subprocess with the default commit agent (`General`); prompts for an optional core standard before launch.
-- `/git commit <agent>` or `/git commit --agent <agent>` - use a specific agent in the isolated subprocess.
+- `/git commit` - start an ephemeral independent Pi process whose main agent uses the `General` configuration; prompts for an optional core standard before launch.
+- `/git commit <agent>` or `/git commit --agent <agent>` - apply a specific agent configuration to the independent Pi process.
 - `/git commit ...核心要求` - 在不指定 agent 的情况下，把后面的内容作为本次提交的核心标准传给提交流程，不再弹输入框。
-- `/git commit <agent> ...核心要求` - 指定 subagent 的同时，附加本次提交核心标准，不再弹输入框。
+- `/git commit <agent> ...核心要求` - 指定独立 Pi 主 agent 的配置，同时附加本次提交核心标准，不再弹输入框。
 - `/git pull` - pull from the current branch with dirty-tree handling.
 - `/git branch` - switch or create branches.
 
@@ -17,7 +17,8 @@ Layered Git command for Pi.
 ```
 git/
 ├── index.ts              # 入口：自动发现 operations/ 下的操作模块
-├── commit-operation.ts   # 可测试的 commit 命令与 UI-only 报告逻辑
+├── commit-operation.ts   # 可测试的 commit 命令与上下文外记录数据
+├── commit-renderer.ts    # 临时工具框与 custom entry 渲染适配器
 ├── operations/
 │   ├── commit.ts         # /git commit 运行时依赖装配
 │   ├── pull.ts           # /git pull
@@ -48,9 +49,11 @@ git/
 
 ### commit
 
-Calls `runAgentInIsolatedProcess()` directly from the command handler. The runner starts a separate Pi process with `--mode json -p --no-session`, applies the selected agent's prompt/model/tools, and waits for it to finish.
+Calls `runAgentInIsolatedProcess()` directly from the command handler. The runner starts a separate Pi process with `--mode json -p --no-session`, applies the selected agent configuration's prompt/model/tools, and waits for that process's **main agent** to finish. The parent LLM is never prompted and never participates in the Git analysis.
 
-The command never calls `pi.sendUserMessage()`, `pi.sendMessage()`, or `pi.appendEntry()`. Progress and the final child summary are shown only through Pi UI status/notifications (or stderr in headless mode), so no delegation prompt, tool call, tool result, or summary is added to the parent conversation context.
+The command never calls `pi.sendUserMessage()` or `pi.sendMessage()`. While running, it uses a temporary tool-style widget above the editor and a status item; the lifecycle callback updates these as soon as the new process PID is available. Direct runner calls do not enter the shared `subagent-runs` widget.
+
+At every terminal state, the temporary UI is cleared and exactly one versioned `git-commit-isolated-run` entry is appended with `pi.appendEntry()`. This is a Pi `type: "custom"` session entry: it persists in JSONL and can be rendered again after reload, but Pi's `sessionEntryToContextMessages()` returns no messages for it. Appending the record neither triggers a turn nor changes the parent LLM context. It contains only process metadata and the independent process's final report—never a parent user/assistant message or synthesized tool result. If the entry cannot be written, the command falls back to a non-persistent UI box plus stderr.
 
 If no inline core requirement is provided, `/git commit` first opens an optional input box. Leaving it empty uses the default workflow; entering text makes that content the core standard for change selection, analysis, and commit message generation.
 
@@ -59,11 +62,11 @@ The child process performs the entire workflow with **sub-repo first** ordering:
 1. **Discover sub-repos**: `git submodule status` + scan for nested `.git` directories
 2. **Commit sub-repos** (deepest path first)
 3. **Commit main repo** (picks up sub-repo reference updates)
-4. Report conflicts, empty changes, commit failures, or push failures through a UI-only notification
+4. Report conflicts, empty changes, commit failures, or push failures in the context-free result entry
 
 Default commit agent: `General`.
 
-This is **conversation isolation, not worktree isolation**: the child has an ephemeral context/session but intentionally operates on the same `ctx.cwd` workspace so it can commit and push the real repository changes. The final report is not persisted in the parent session.
+This is **process and conversation isolation, not worktree isolation**: the independent Pi main agent has an ephemeral context/session but intentionally operates on the same `ctx.cwd` workspace so it can commit and push the real repository changes. Its final report is persisted only as the context-free custom display entry described above.
 
 Examples:
 
