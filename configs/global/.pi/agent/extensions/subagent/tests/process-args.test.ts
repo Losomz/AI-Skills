@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildAgentProcessArgs } from "../process-args.ts";
+import { buildAgentProcessArgs } from "../agent-runner.ts";
 
 test("isolated agent argv keeps ephemeral JSON mode and inherits model, tools, prompt, and task", () => {
 	assert.deepEqual(

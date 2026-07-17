@@ -1,42 +1,76 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { AgentConfig } from "../../subagent/agents.ts";
+import type {
+	AgentProcessOptions,
+	AgentProcessResult,
+	AgentProcessUpdate,
+} from "../../subagent/agent-runner.ts";
+import { buildCommitTask, createCommitOperation } from "../commit-operation.ts";
 
-import {
-	buildCommitRunView,
-	createCommitOperation,
-	type CommitAgentRunOptions,
-	type CommitAgentRunResult,
-	type GitCommitRunEntryData,
-} from "../commit-operation.ts";
+const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 
-function successfulResult(overrides: Partial<CommitAgentRunResult> = {}): CommitAgentRunResult {
+function agentConfig(name = "General"): AgentConfig {
 	return {
+		name,
+		description: "test agent",
+		model: "openai-codex/gpt-5.3-codex-spark",
+		tools: ["read", "bash"],
+		systemPrompt: "General base prompt",
+		source: "project",
+		filePath: `agents/${name}.md`,
+	};
+}
+
+function successfulResult(overrides: Partial<AgentProcessResult> = {}): AgentProcessResult {
+	return {
+		runId: "General-test",
 		agent: "General",
+		status: "completed",
+		model: "openai-codex/gpt-5.3-codex-spark",
+		startedAt: 1_000,
+		endedAt: 4_000,
+		messages: [],
+		usage: { ...EMPTY_USAGE },
 		exitCode: 0,
 		output: "提交并推送完成",
 		stderr: "",
 		failed: false,
 		pid: 4321,
-		status: "completed",
+		...overrides,
+	};
+}
+
+function runningUpdate(overrides: Partial<AgentProcessUpdate> = {}): AgentProcessUpdate {
+	return {
+		runId: "General-test",
+		agent: "General",
+		status: "running",
 		model: "openai-codex/gpt-5.3-codex-spark",
-		startedAt: 1_000,
-		endedAt: 4_000,
+		startedAt: Date.now(),
+		messages: [],
+		usage: { ...EMPTY_USAGE },
+		exitCode: 0,
+		output: "",
+		stderr: "",
+		failed: false,
+		pid: 9876,
 		...overrides,
 	};
 }
 
 interface Deferred<T> {
 	promise: Promise<T>;
-	resolve: (value: T) => void;
-	reject: (reason: unknown) => void;
+	resolve(value: T): void;
+	reject(reason: unknown): void;
 }
 
 function deferred<T>(): Deferred<T> {
 	let resolve!: (value: T) => void;
 	let reject!: (reason: unknown) => void;
-	const promise = new Promise<T>((res, rej) => {
-		resolve = res;
-		reject = rej;
+	const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+		resolve = resolvePromise;
+		reject = rejectPromise;
 	});
 	return { promise, resolve, reject };
 }
@@ -46,16 +80,9 @@ async function settleBackground(): Promise<void> {
 	await new Promise((resolve) => setImmediate(resolve));
 }
 
-interface WidgetCall {
-	key: string;
-	content: unknown;
-	options?: unknown;
-}
-
 function createUiContext(input: string | undefined) {
 	const notifications: Array<{ message: string; level?: string }> = [];
-	const statuses: Array<{ key: string; value: unknown }> = [];
-	const widgets: WidgetCall[] = [];
+	const widgets: Array<{ key: string; content: unknown; options?: unknown }> = [];
 	const ctx: any = {
 		hasUI: true,
 		cwd: "D:\\work\\repo",
@@ -66,15 +93,15 @@ function createUiContext(input: string | undefined) {
 			notify(message: string, level?: string) {
 				notifications.push({ message, level });
 			},
-			setStatus(key: string, value: unknown) {
-				statuses.push({ key, value });
-			},
 			setWidget(key: string, content: unknown, options?: unknown) {
 				widgets.push({ key, content, options });
 			},
+			setStatus() {
+				throw new Error("Git commit must not use the status bar");
+			},
 		},
 	};
-	return { ctx, notifications, statuses, widgets };
+	return { ctx, notifications, widgets };
 }
 
 const poisonParentApi = new Proxy(
@@ -86,270 +113,193 @@ const poisonParentApi = new Proxy(
 	},
 );
 
-test("/git commit starts an isolated background run and resolves before the run completes", async () => {
-	const run = deferred<CommitAgentRunResult>();
-	const calls: CommitAgentRunOptions[] = [];
+function createDependencies(runAgentProcess: (options: AgentProcessOptions) => Promise<AgentProcessResult>) {
+	const general = agentConfig();
+	return {
+		discoverAgents: () => [general],
+		findAgentByName: (agents: AgentConfig[], name: string) => agents.find((agent) => agent.name.toLowerCase() === name.toLowerCase()),
+		runAgentProcess,
+		loadPromptTemplate: () => "执行 Git 提交。\n\n核心要求：{{CORE_STANDARD}}",
+	};
+}
+
+test("Git prompt template injects the core standard and rejects an invalid template", () => {
+	assert.equal(
+		buildCommitTask("只提交文档", "任务：{{CORE_STANDARD}}"),
+		"任务：只提交文档",
+	);
+	assert.match(buildCommitTask("", "任务：{{CORE_STANDARD}}"), /无额外要求/);
+	assert.throws(() => buildCommitTask("x", "missing placeholder"), /CORE_STANDARD/);
+});
+
+test("/git commit passes the complete General profile and returns before the background run", async () => {
+	const run = deferred<AgentProcessResult>();
+	let captured: AgentProcessOptions | undefined;
 	const stderr: string[] = [];
 	const operation = createCommitOperation({
-		discoverAgents: () => [{ name: "General" }],
-		runAgent(_ctx, options) {
-			calls.push(options);
+		...createDependencies((options) => {
+			captured = options;
 			return run.promise;
-		},
+		}),
 		writeHeadless: (message) => stderr.push(message),
 	});
-	const { ctx, notifications, statuses, widgets } = createUiContext("");
+	const { ctx, notifications, widgets } = createUiContext(undefined);
 
-	await operation.handle(poisonParentApi as any, ctx, {
-		agent: "General",
-		extraInstructions: "只提交 Pi 扩展",
-	});
+	await operation.handle(poisonParentApi as never, ctx, "General 只提交文档");
 
-	assert.equal(calls.length, 1);
-	assert.equal(calls[0].agent, "General");
-	assert.equal(calls[0].agentScope, "project");
-	assert.equal(calls[0].cwd, ctx.cwd);
-	assert.equal(typeof calls[0].onUpdate, "function");
-	assert.match(calls[0].task, /只提交 Pi 扩展/);
-	assert.match(calls[0].task, /独立 Pi 进程中的主 agent/);
-	assert.match(calls[0].task, /子仓库优先原则/);
+	assert.ok(captured);
+	assert.equal(captured.profile.name, "General");
+	assert.equal(captured.profile.model, "openai-codex/gpt-5.3-codex-spark");
+	assert.deepEqual(captured.profile.tools, ["read", "bash"]);
+	assert.equal(captured.profile.systemPrompt, "General base prompt");
+	assert.equal(captured.cwd, ctx.cwd);
+	assert.match(captured.task, /General 只提交文档/);
 	assert.equal(notifications.length, 0);
+	assert.match(String(widgets.at(-1)?.content), /General.*PID 启动中/);
 
-	calls[0].onUpdate?.({
-		agent: "General",
-		status: "running",
-		pid: 4321,
-		model: "openai-codex/gpt-5.3-codex-spark",
-		startedAt: 1_000,
-	});
-	assert.ok(widgets.some((call) => Array.isArray(call.content)));
-	assert.match(String(statuses.find((item) => String(item.value).includes("pid=4321"))?.value), /pid=4321/);
+	captured.onUpdate?.(runningUpdate());
+	assert.match(String(widgets.at(-1)?.content), /PID 9876/);
 
-	run.resolve(successfulResult());
+	run.resolve(successfulResult({ pid: 9876 }));
 	await settleBackground();
-
-	assert.deepEqual(widgets.at(-1), { key: "git-commit-isolated-process", content: undefined, options: undefined });
-	assert.deepEqual(statuses.at(-1), { key: "git-commit", value: undefined });
+	assert.equal(widgets.at(-1)?.content, undefined);
 	assert.equal(notifications.at(-1)?.level, "info");
-	assert.match(notifications.at(-1)?.message ?? "", /Git commit 已完成/);
-	assert.match(notifications.at(-1)?.message ?? "", /PID 4321/);
-	assert.match(stderr.at(-1) ?? "", /提交并推送完成/);
+	assert.match(notifications.at(-1)?.message ?? "", /Git commit 已完成.*PID 9876/);
+	assert.deepEqual(stderr, []);
 });
 
-test("canceling the optional core-standard prompt notifies without starting a process", async () => {
-	let runCount = 0;
-	const operation = createCommitOperation({
-		discoverAgents: () => [],
-		async runAgent() {
-			runCount++;
-			return successfulResult();
-		},
-	});
-	const { ctx, notifications, statuses, widgets } = createUiContext(undefined);
+test("canceling the optional core-standard input does not start a process", async () => {
+	let starts = 0;
+	const operation = createCommitOperation(createDependencies(async () => {
+		starts++;
+		return successfulResult();
+	}));
+	const { ctx, notifications, widgets } = createUiContext(undefined);
 
-	await operation.handle(poisonParentApi as any, ctx);
+	await operation.handle(poisonParentApi as never, ctx);
 
-	assert.equal(runCount, 0);
-	assert.deepEqual(statuses, []);
-	assert.deepEqual(widgets, []);
-	assert.equal(notifications.length, 1);
-	assert.match(notifications[0].message, /已取消/);
+	assert.equal(starts, 0);
+	assert.match(notifications.at(-1)?.message ?? "", /已取消/);
+	assert.equal(widgets.length, 0);
 });
 
-test("a second /git commit only reports the active background run", async () => {
-	const run = deferred<CommitAgentRunResult>();
-	let runCount = 0;
-	const operation = createCommitOperation({
-		discoverAgents: () => [],
-		runAgent(_ctx, options) {
-			runCount++;
-			options.onUpdate?.({ agent: "General", status: "running", pid: 1111, startedAt: 1_000 });
-			return run.promise;
-		},
+test("missing General or an invalid prompt template fails before process startup", async (t) => {
+	await t.test("missing General", async () => {
+		let starts = 0;
+		const operation = createCommitOperation({
+			discoverAgents: () => [],
+			findAgentByName: () => undefined,
+			async runAgentProcess() {
+				starts++;
+				return successfulResult();
+			},
+		});
+		const { ctx, notifications } = createUiContext("ignored");
+		await operation.handle(poisonParentApi as never, ctx, "提交");
+		assert.equal(starts, 0);
+		assert.equal(notifications.at(-1)?.level, "error");
+		assert.match(notifications.at(-1)?.message ?? "", /未找到 General profile/);
 	});
-	const first = createUiContext("");
-	const second = createUiContext("");
 
-	await operation.handle(poisonParentApi as any, first.ctx, { extraInstructions: "提交" });
-	await operation.handle(poisonParentApi as any, second.ctx, { extraInstructions: "提交" });
+	await t.test("invalid template", async () => {
+		let starts = 0;
+		const operation = createCommitOperation({
+			...createDependencies(async () => {
+				starts++;
+				return successfulResult();
+			}),
+			loadPromptTemplate: () => "invalid",
+		});
+		const { ctx, notifications } = createUiContext("ignored");
+		await operation.handle(poisonParentApi as never, ctx, "提交");
+		assert.equal(starts, 0);
+		assert.equal(notifications.at(-1)?.level, "error");
+		assert.match(notifications.at(-1)?.message ?? "", /缺少.*CORE_STANDARD/);
+	});
+});
 
-	assert.equal(runCount, 1);
-	assert.equal(second.notifications.length, 1);
-	assert.match(second.notifications[0].message, /已有 Git commit 后台任务运行中/);
-	assert.match(second.notifications[0].message, /PID 1111/);
+test("a second /git commit reports the active PID and does not start another process", async () => {
+	const run = deferred<AgentProcessResult>();
+	let starts = 0;
+	const operation = createCommitOperation(createDependencies(() => {
+		starts++;
+		return run.promise;
+	}));
+	const first = createUiContext("first");
+	const second = createUiContext("second");
 
-	run.resolve(successfulResult({ pid: 1111 }));
+	await operation.handle(poisonParentApi as never, first.ctx, "first");
+	await operation.handle(poisonParentApi as never, second.ctx, "second");
+
+	assert.equal(starts, 1);
+	assert.match(second.notifications.at(-1)?.message ?? "", /已有 Git commit 后台任务运行中/);
+	run.resolve(successfulResult({ pid: 9001 }));
 	await settleBackground();
 });
 
-test("unknown-agent, spawn, and non-zero failures notify errors and leave no stale UI", async (t) => {
-	const failures: Array<{ name: string; result: CommitAgentRunResult; expected: RegExp }> = [
+test("startup throws, rejected promises, failed exits, and aborts all clean the widget", async (t) => {
+	const cases: Array<{
+		name: string;
+		run: (options: AgentProcessOptions) => Promise<AgentProcessResult>;
+		level: "info" | "error";
+		pattern: RegExp;
+	}> = [
 		{
-			name: "unknown agent",
-			result: successfulResult({
-				exitCode: 1,
-				failed: true,
-				status: "failed",
-				output: 'Unknown agent: "Missing"',
-				pid: undefined,
-				startedAt: undefined,
-				endedAt: undefined,
-			}),
-			expected: /Unknown agent/,
+			name: "synchronous startup throw",
+			run: (() => { throw new Error("spawn EACCES"); }) as (options: AgentProcessOptions) => Promise<AgentProcessResult>,
+			level: "error",
+			pattern: /spawn EACCES/,
 		},
 		{
-			name: "spawn failure",
-			result: successfulResult({
-				exitCode: 1,
-				failed: true,
-				status: "failed",
-				output: "Failed to start Pi subprocess",
-				pid: undefined,
-			}),
-			expected: /Failed to start Pi subprocess/,
+			name: "background rejection",
+			run: async () => { throw new Error("runner rejected"); },
+			level: "error",
+			pattern: /runner rejected/,
 		},
 		{
 			name: "non-zero exit",
-			result: successfulResult({ exitCode: 2, failed: true, status: "failed", output: "git push failed" }),
-			expected: /git push failed/,
+			run: async () => successfulResult({ status: "failed", failed: true, exitCode: 2, output: "git push failed" }),
+			level: "error",
+			pattern: /git push failed/,
+		},
+		{
+			name: "aborted run",
+			run: async () => successfulResult({ status: "aborted", failed: true, exitCode: 1, output: "aborted" }),
+			level: "info",
+			pattern: /已取消/,
 		},
 	];
 
-	for (const failure of failures) {
-		await t.test(failure.name, async () => {
+	for (const item of cases) {
+		await t.test(item.name, async () => {
+			const stderr: string[] = [];
 			const operation = createCommitOperation({
-				discoverAgents: () => [],
-				async runAgent() {
-					return failure.result;
-				},
+				...createDependencies(item.run),
+				writeHeadless: (message) => stderr.push(message),
 			});
-			const { ctx, notifications, statuses, widgets } = createUiContext("");
-
-			await operation.handle(poisonParentApi as any, ctx, { extraInstructions: "提交" });
+			const { ctx, notifications, widgets } = createUiContext("ignored");
+			await operation.handle(poisonParentApi as never, ctx, "提交");
 			await settleBackground();
-
-			assert.equal(notifications.at(-1)?.level, "error");
-			assert.match(notifications.at(-1)?.message ?? "", failure.expected);
-			assert.deepEqual(statuses.at(-1), { key: "git-commit", value: undefined });
-			assert.deepEqual(widgets.at(-1), {
-				key: "git-commit-isolated-process",
-				content: undefined,
-				options: undefined,
-			});
+			assert.equal(widgets.at(-1)?.content, undefined);
+			assert.equal(notifications.at(-1)?.level, item.level);
+			assert.match(notifications.at(-1)?.message ?? "", item.pattern);
+			if (item.level === "error") assert.ok(stderr.length > 0);
 		});
 	}
 });
 
-test("sync startup failures are caught by the background command path", async () => {
+test("headless mode writes startup and completion to stderr without a UI object", async () => {
 	const output: string[] = [];
 	const operation = createCommitOperation({
-		discoverAgents: () => [],
-		runAgent() {
-			throw new Error("spawn EACCES");
-		},
-		writeHeadless: (message) => output.push(message),
-	});
-	const { ctx, notifications, statuses, widgets } = createUiContext("");
-
-	await operation.handle(poisonParentApi as any, ctx, { extraInstructions: "提交" });
-
-	assert.equal(notifications.at(-1)?.level, "error");
-	assert.match(notifications.at(-1)?.message ?? "", /spawn EACCES/);
-	assert.match(output.at(-1) ?? "", /spawn EACCES/);
-	assert.deepEqual(statuses.at(-1), { key: "git-commit", value: undefined });
-	assert.equal(widgets.at(-1)?.content, undefined);
-});
-
-test("an aborted isolated runner is notified as cancelled and retains lifecycle PID", async () => {
-	const operation = createCommitOperation({
-		discoverAgents: () => [],
-		async runAgent(_ctx, options) {
-			options.onUpdate?.({ agent: "General", status: "running", pid: 9876, startedAt: 2_000 });
-			throw new Error("Subagent was aborted");
-		},
-	});
-	const { ctx, notifications, statuses, widgets } = createUiContext("");
-
-	await operation.handle(poisonParentApi as any, ctx, { extraInstructions: "提交" });
-	await settleBackground();
-
-	assert.equal(notifications.at(-1)?.level, "info");
-	assert.match(notifications.at(-1)?.message ?? "", /已取消/);
-	assert.match(notifications.at(-1)?.message ?? "", /PID 9876/);
-	assert.deepEqual(statuses.at(-1), { key: "git-commit", value: undefined });
-	assert.equal(widgets.at(-1)?.content, undefined);
-});
-
-test("headless mode uses stderr only and never accesses the parent Pi API", async () => {
-	const output: string[] = [];
-	const operation = createCommitOperation({
-		discoverAgents: () => [],
-		async runAgent(_ctx, options) {
-			assert.equal(options.cwd, "C:\\repo");
-			return successfulResult({ pid: undefined });
-		},
+		...createDependencies(async () => successfulResult({ pid: 111 })),
 		writeHeadless: (message) => output.push(message),
 	});
 	const ctx: any = { hasUI: false, cwd: "C:\\repo" };
 
-	await operation.handle(poisonParentApi as any, ctx);
+	await operation.handle(poisonParentApi as never, ctx, "");
 	await settleBackground();
 
 	assert.equal(output.length, 2);
-	assert.match(output[0], /独立 Pi 进程的主 agent/);
-	assert.match(output[1], /提交并推送完成/);
-});
-
-function successfulEntryData(overrides: Partial<GitCommitRunEntryData> = {}): GitCommitRunEntryData {
-	return {
-		version: 1,
-		status: "completed",
-		agent: "General",
-		cwd: "D:\\work\\repo",
-		output: "第一行\n第二行\n第三行\n第四行",
-		pid: 4321,
-		model: "openai-codex/gpt-5.3-codex-spark",
-		exitCode: 0,
-		startedAt: 1_000,
-		endedAt: 4_000,
-		durationMs: 3_000,
-		...overrides,
-	};
-}
-
-test("the legacy result view still exposes collapsed and expanded output with terminal-state colors", () => {
-	const completed = buildCommitRunView(successfulEntryData());
-	assert.equal(completed.background, "toolSuccessBg");
-	assert.equal(completed.title, "git commit");
-	assert.equal(completed.isolationLabel, "独立 Pi 主 agent · 不进入父上下文");
-	assert.doesNotMatch(completed.outputPreview, /第四行/);
-	assert.match(completed.output, /第四行/);
-	assert.equal(completed.outputTruncated, true);
-
-	const failed = buildCommitRunView(
-		successfulEntryData({ status: "failed", exitCode: 1, output: "push failed" }),
-	);
-	assert.equal(failed.background, "toolErrorBg");
-
-	const cancelled = buildCommitRunView(
-		successfulEntryData({ status: "cancelled", exitCode: undefined, output: "cancelled" }),
-	);
-	assert.equal(cancelled.background, "toolPendingBg");
-});
-
-test("agent completions preserve the command syntax and identify the independent main agent", () => {
-	const operation = createCommitOperation({
-		discoverAgents: () => [{ name: "General" }, { name: "Explore" }],
-		async runAgent() {
-			return successfulResult();
-		},
-	});
-
-	assert.deepEqual(operation.getCompletions("commit gen"), [
-		{
-			value: "commit General",
-			label: "General",
-			description: "使用 General 独立 Pi 主 agent 执行提交",
-		},
-	]);
+	assert.match(output[0], /Git commit 已启动 · General/);
+	assert.match(output[1], /Git commit 已完成.*提交并推送完成/s);
 });

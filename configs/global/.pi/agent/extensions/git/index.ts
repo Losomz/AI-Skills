@@ -11,7 +11,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { registerCommitResultRenderer } from "./commit-renderer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const opsDir = path.join(__dirname, "operations");
@@ -21,7 +20,7 @@ interface GitOperation {
 	label: string;
 	order?: number;
 	description: string;
-	handle: (pi: ExtensionAPI, ctx: ExtensionContext, args?: unknown) => Promise<void>;
+	handle: (pi: ExtensionAPI, ctx: ExtensionContext, args?: string) => Promise<void>;
 	getCompletions?: (prefix: string) => Awaited<ReturnType<NonNullable<NonNullable<Parameters<ExtensionAPI["registerCommand"]>[1]["getArgumentCompletions"]>>>>;
 }
 
@@ -45,8 +44,6 @@ function parseOperationChoice(choice: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
-	registerCommitResultRenderer(pi);
-
 	pi.registerCommand("git", {
 		description: "Git operations",
 		getArgumentCompletions: (prefix: string) => {
@@ -90,32 +87,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// For commit: parse agent and extra instructions from args
-			if (op.value === "commit") {
-				const rest = parts.slice(1);
-				let agent: string | undefined;
-				let extraParts: string[] = [];
-
-				// Lazy import discoverAgents only when needed
-				const { discoverAgents } = await import("../subagent/agents.js");
-				const availableAgents = discoverAgents(process.cwd(), "project").agents.map((a) => a.name);
-
-				if (rest[0] === "--agent" || rest[0] === "-a") {
-					rest.shift();
-					agent = rest.shift();
-					extraParts = rest;
-				} else if (rest[0] && availableAgents.some((item) => item.toLowerCase() === rest[0].toLowerCase())) {
-					agent = rest.shift();
-					extraParts = rest;
-				} else {
-					extraParts = rest;
-				}
-
-				await op.handle(pi, ctx, { agent, extraInstructions: extraParts.join(" ") });
-				return;
-			}
-
-			await op.handle(pi, ctx);
+			await op.handle(pi, ctx, parts.slice(1).join(" "));
 		},
 	});
 }

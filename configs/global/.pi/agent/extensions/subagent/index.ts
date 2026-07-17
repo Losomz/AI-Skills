@@ -12,18 +12,18 @@
  * Uses JSON mode to capture structured output from subagents.
  */
 
-import { spawn } from "node:child_process";
-import * as fs from "node:fs";
 import * as os from "node:os";
-import * as path from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, findAgentByName } from "./agents.js";
-import { buildAgentProcessArgs } from "./process-args.js";
+import {
+	runAgentProcess,
+	type AgentProcessStatus,
+} from "./agent-runner.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -55,8 +55,7 @@ function buildSubagentSystemHint(agents: AgentConfig[]): string {
 	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
 }
 
-export type IsolatedAgentProcessStatus = "pending" | "running" | "completed" | "failed" | "aborted";
-type RunStatus = IsolatedAgentProcessStatus;
+type RunStatus = AgentProcessStatus;
 
 interface ActiveRun {
 	runId: string;
@@ -271,7 +270,13 @@ function getFinalOutput(messages: Message[]): string {
 }
 
 function isFailedResult(result: SingleResult): boolean {
-	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+	return (
+		result.exitCode !== 0 ||
+		result.status === "failed" ||
+		result.status === "aborted" ||
+		result.stopReason === "error" ||
+		result.stopReason === "aborted"
+	);
 }
 
 function getResultOutput(result: SingleResult): string {
@@ -343,35 +348,38 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
 	return results;
 }
 
-async function writePromptToTempFile(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
-	const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
-	const safeName = agentName.replace(/[^\w.-]+/g, "_");
-	const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
-	await withFileMutationQueue(filePath, async () => {
-		await fs.promises.writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
-	});
-	return { dir: tmpDir, filePath };
-}
-
-function getPiInvocation(args: string[]): { command: string; args: string[]; shell: boolean } {
-	const currentScript = process.argv[1];
-	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args], shell: false };
-	}
-
-	const execName = path.basename(process.execPath).toLowerCase();
-	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-	if (!isGenericRuntime) {
-		return { command: process.execPath, args, shell: false };
-	}
-
-	// On Windows, use shell to properly resolve npm global commands
-	const isWindows = process.platform === "win32";
-	return { command: "pi", args, shell: isWindows };
-}
-
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
+
+function emitRunProgressUpdate(
+	ctx: ExtensionContext,
+	onUpdate: OnUpdateCallback | undefined,
+	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	result: SingleResult,
+): void {
+	if (onUpdate) {
+		onUpdate({
+			content: [{ type: "text", text: getFinalOutput(result.messages) || "(running...)" }],
+			details: makeDetails([result]),
+		});
+	}
+
+	if (!ctx.hasUI) return;
+	if (result.status === "pending" || result.status === "running") {
+		activeRuns.set(result.runId ?? "", {
+			runId: result.runId ?? createRunId(result.agent),
+			agent: result.agent,
+			task: result.task,
+			model: result.model,
+			pid: result.pid,
+			status: result.status,
+			startedAt: result.startedAt ?? Date.now(),
+			updatedAt: Date.now(),
+		});
+	} else {
+		activeRuns.delete(result.runId ?? result.agent);
+	}
+	updateSubagentWidget(ctx);
+}
 
 async function runSingleAgent(
 	ctx: ExtensionContext,
@@ -384,7 +392,6 @@ async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
-	showInSharedWidget = true,
 ): Promise<SingleResult> {
 	const agent = findAgentByName(agents, agentName);
 	const runId = createRunId(agent?.name ?? agentName);
@@ -404,9 +411,6 @@ async function runSingleAgent(
 		};
 	}
 
-	let tmpPromptDir: string | null = null;
-	let tmpPromptPath: string | null = null;
-
 	const currentResult: SingleResult = {
 		runId,
 		agent: agent.name,
@@ -422,264 +426,67 @@ async function runSingleAgent(
 		step,
 	};
 
-	const emitUpdate = () => {
-		if (onUpdate) {
-			onUpdate({
-				content: [{ type: "text", text: getFinalOutput(currentResult.messages) || "(running...)" }],
-				details: makeDetails([currentResult]),
-			});
-		}
-		if (showInSharedWidget) updateSubagentWidget(ctx);
-	};
+	emitRunProgressUpdate(ctx, onUpdate, makeDetails, currentResult);
 
 	try {
-		if (agent.systemPrompt.trim()) {
-			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
-			tmpPromptDir = tmp.dir;
-			tmpPromptPath = tmp.filePath;
-		}
-
-		const args = buildAgentProcessArgs(agent, task, tmpPromptPath ?? undefined);
-		let wasAborted = false;
-
-		const exitCode = await new Promise<number>((resolve) => {
-			const invocation = getPiInvocation(args);
-			const proc = spawn(invocation.command, invocation.args, {
-				cwd: cwd ?? defaultCwd,
-				shell: invocation.shell,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			currentResult.pid = proc.pid;
-			currentResult.status = "running";
-			if (showInSharedWidget) {
-				activeRuns.set(runId, {
-					runId,
-					agent: agent.name,
-					task,
-					model: currentResult.model,
-					pid: proc.pid,
-					status: "running",
-					startedAt,
-					updatedAt: Date.now(),
-				});
-			}
-			emitUpdate();
-			let buffer = "";
-			let settled = false;
-
-			const processLine = (line: string) => {
-				if (!line.trim()) return;
-				let event: any;
-				try {
-					event = JSON.parse(line);
-				} catch {
-					return;
-				}
-
-				if (event.type === "message_end" && event.message) {
-					const msg = event.message as Message;
-					currentResult.messages.push(msg);
-
-					if (msg.role === "assistant") {
-						currentResult.usage.turns++;
-						const usage = msg.usage;
-						if (usage) {
-							currentResult.usage.input += usage.input || 0;
-							currentResult.usage.output += usage.output || 0;
-							currentResult.usage.cacheRead += usage.cacheRead || 0;
-							currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-							currentResult.usage.cost += usage.cost?.total || 0;
-							currentResult.usage.contextTokens = usage.totalTokens || 0;
-						}
-						if (!currentResult.model && msg.model) currentResult.model = msg.model;
-						const activeRun = activeRuns.get(runId);
-						if (activeRun) {
-							activeRun.model = currentResult.model;
-							activeRun.updatedAt = Date.now();
-						}
-						if (msg.stopReason) currentResult.stopReason = msg.stopReason;
-						if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
-					}
-					emitUpdate();
-				}
-
-				if (event.type === "tool_result_end" && event.message) {
-					currentResult.messages.push(event.message as Message);
-					emitUpdate();
-				}
-			};
-
-			proc.stdout.on("data", (data) => {
-				buffer += data.toString();
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) processLine(line);
-			});
-
-			proc.stderr.on("data", (data) => {
-				currentResult.stderr += data.toString();
-			});
-
-			proc.on("close", (code) => {
-				if (settled) return;
-				settled = true;
-				if (buffer.trim()) processLine(buffer);
-				const exit = code ?? 0;
-				currentResult.status = wasAborted ? "aborted" : exit === 0 ? "completed" : "failed";
-				currentResult.endedAt = Date.now();
-				activeRuns.delete(runId);
-				emitUpdate();
-				resolve(exit);
-			});
-
-			proc.on("error", (error) => {
-				if (settled) return;
-				settled = true;
-				const message = `Failed to start Pi subprocess: ${error.message}`;
-				currentResult.errorMessage = message;
-				currentResult.stderr = currentResult.stderr ? `${currentResult.stderr}\n${message}` : message;
-				currentResult.status = "failed";
-				currentResult.endedAt = Date.now();
-				activeRuns.delete(runId);
-				emitUpdate();
-				resolve(1);
-			});
-
-			if (signal) {
-				const killProc = () => {
-					wasAborted = true;
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
-				};
-				if (signal.aborted) killProc();
-				else signal.addEventListener("abort", killProc, { once: true });
-			}
+		const runnerResult = await runAgentProcess({
+			profile: agent,
+			task,
+			cwd: cwd ?? defaultCwd,
+			signal,
+			onUpdate: (partial) => {
+				currentResult.agent = partial.agent;
+				currentResult.pid = partial.pid;
+				currentResult.model = partial.model ?? currentResult.model;
+				currentResult.status = partial.status;
+				currentResult.startedAt = partial.startedAt;
+				currentResult.endedAt = partial.endedAt;
+				currentResult.stopReason = partial.stopReason;
+				currentResult.errorMessage = partial.errorMessage;
+				currentResult.messages = partial.messages;
+				currentResult.usage = partial.usage;
+				currentResult.exitCode = partial.exitCode;
+				currentResult.stderr = partial.stderr;
+				emitRunProgressUpdate(ctx, onUpdate, makeDetails, { ...currentResult, step });
+			},
 		});
-
-		currentResult.exitCode = exitCode;
-		if (!currentResult.endedAt) currentResult.endedAt = Date.now();
-		if (wasAborted) throw new Error("Subagent was aborted");
+		currentResult.runId = runnerResult.runId;
+		currentResult.pid = runnerResult.pid;
+		currentResult.exitCode = runnerResult.exitCode;
+		currentResult.messages = runnerResult.messages;
+		currentResult.stderr = runnerResult.stderr;
+		currentResult.usage = runnerResult.usage;
+		currentResult.model = runnerResult.model;
+		currentResult.status = runnerResult.status;
+		currentResult.startedAt = runnerResult.startedAt;
+		currentResult.endedAt = runnerResult.endedAt;
+		currentResult.stopReason = runnerResult.stopReason;
+		currentResult.errorMessage = runnerResult.errorMessage;
+		return currentResult;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		currentResult.exitCode = 1;
+		currentResult.status = "failed";
+		currentResult.errorMessage = message;
+		currentResult.stderr = message;
+		currentResult.endedAt = Date.now();
+		emitRunProgressUpdate(ctx, onUpdate, makeDetails, currentResult);
 		return currentResult;
 	} finally {
-		if (tmpPromptPath)
-			try {
-				fs.unlinkSync(tmpPromptPath);
-			} catch {
-				/* ignore */
-			}
-		if (tmpPromptDir)
-			try {
-				fs.rmdirSync(tmpPromptDir);
-			} catch {
-				/* ignore */
-			}
+		if (ctx.hasUI) {
+			activeRuns.delete(runId);
+			updateSubagentWidget(ctx);
+		}
 	}
 }
 
-export interface IsolatedAgentProcessOptions {
-	agent: string;
-	task: string;
-	agentScope?: AgentScope;
-	cwd?: string;
-	signal?: AbortSignal;
-	onUpdate?: (update: IsolatedAgentProcessUpdate) => void;
-}
-
-export interface IsolatedAgentProcessUpdate {
-	agent: string;
-	status: IsolatedAgentProcessStatus;
-	pid?: number;
-	model?: string;
-	startedAt?: number;
-	endedAt?: number;
-}
-
-export interface IsolatedAgentProcessResult {
-	agent: string;
-	exitCode: number;
-	output: string;
-	stderr: string;
-	failed: boolean;
-	pid?: number;
-	status: IsolatedAgentProcessStatus;
-	model?: string;
-	startedAt?: number;
-	endedAt?: number;
-	stopReason?: string;
-	errorMessage?: string;
-}
-
-function getIsolatedProcessStatus(result: SingleResult): IsolatedAgentProcessStatus {
-	return result.status ?? (isFailedResult(result) ? "failed" : "completed");
-}
-
-/**
- * Run one configured agent in an ephemeral Pi subprocess without creating a
- * parent-session message or tool result. Callers decide how to display output.
- */
-export async function runAgentInIsolatedProcess(
-	ctx: ExtensionContext,
-	options: IsolatedAgentProcessOptions,
-): Promise<IsolatedAgentProcessResult> {
-	const agentScope = options.agentScope ?? "project";
-	const discovery = discoverAgents(ctx.cwd, agentScope);
-	const makeDetails = (results: SingleResult[]): SubagentDetails => ({
-		mode: "single",
-		agentScope,
-		projectAgentsDir: discovery.projectAgentsDir,
-		results,
-	});
-	let lastUpdateSignature = "";
-	const emitLifecycleUpdate = (current: SingleResult): void => {
-		if (!options.onUpdate) return;
-		const update: IsolatedAgentProcessUpdate = {
-			agent: current.agent,
-			status: getIsolatedProcessStatus(current),
-			pid: current.pid,
-			model: current.model,
-			startedAt: current.startedAt,
-			endedAt: current.endedAt,
-		};
-		const signature = JSON.stringify(update);
-		if (signature === lastUpdateSignature) return;
-		lastUpdateSignature = signature;
-		options.onUpdate(update);
-	};
-	const result = await runSingleAgent(
-		ctx,
-		ctx.cwd,
-		discovery.agents,
-		options.agent,
-		options.task,
-		options.cwd,
-		undefined,
-		options.signal,
-		(partial) => {
-			const current = partial.details?.results[0];
-			if (current) emitLifecycleUpdate(current);
-		},
-		makeDetails,
-		false,
-	);
-	emitLifecycleUpdate(result);
-
-	return {
-		agent: result.agent,
-		exitCode: result.exitCode,
-		output: getResultOutput(result),
-		stderr: result.stderr,
-		failed: isFailedResult(result),
-		pid: result.pid,
-		status: getIsolatedProcessStatus(result),
-		model: result.model,
-		startedAt: result.startedAt,
-		endedAt: result.endedAt,
-		stopReason: result.stopReason,
-		errorMessage: result.errorMessage,
-	};
-}
+export { runAgentProcess } from "./agent-runner.js";
+export type {
+	AgentProcessResult,
+	AgentProcessStatus,
+	AgentProcessOptions,
+	AgentProcessUpdate,
+} from "./agent-runner.js";
 
 const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),

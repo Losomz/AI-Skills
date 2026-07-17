@@ -5,10 +5,8 @@ Layered Git command for Pi.
 ## Commands
 
 - `/git` - choose a Git operation from a menu with descriptions.
-- `/git commit` - start an ephemeral independent Pi process whose main agent uses the `General` configuration; prompts for an optional core standard before launch.
-- `/git commit <agent>` or `/git commit --agent <agent>` - apply a specific agent configuration to the independent Pi process.
-- `/git commit ...核心要求` - 在不指定 agent 的情况下，把后面的内容作为本次提交的核心标准传给提交流程，不再弹输入框。
-- `/git commit <agent> ...核心要求` - 指定独立 Pi 主 agent 的配置，同时附加本次提交核心标准，不再弹输入框。
+- `/git commit` - 后台启动使用 `General` profile 的 Pi 进程，并询问可选的核心要求。
+- `/git commit ...核心要求` - 直接把后续文本作为本次提交要求，不再弹输入框。
 - `/git pull` - pull from the current branch with dirty-tree handling.
 - `/git branch` - switch or create branches.
 
@@ -17,8 +15,9 @@ Layered Git command for Pi.
 ```
 git/
 ├── index.ts              # 入口：自动发现 operations/ 下的操作模块
-├── commit-operation.ts   # 可测试的后台 commit 命令与通知数据
-├── commit-renderer.ts    # 临时工具框与旧 custom entry 渲染兼容
+├── commit-operation.ts   # 后台 commit 生命周期与通知
+├── prompts/
+│   └── commit.md         # Git 工作规则模板
 ├── operations/
 │   ├── commit.ts         # /git commit 运行时依赖装配
 │   ├── pull.ts           # /git pull
@@ -49,32 +48,23 @@ git/
 
 ### commit
 
-Calls `runAgentInIsolatedProcess()` directly from the command handler. The runner starts a separate Pi process with `--mode json -p --no-session` and applies the selected agent configuration's prompt/model/tools. The command starts this work in the background and returns immediately, so the parent Pi task can continue while the independent process's **main agent** completes the Git workflow. The parent LLM is never prompted and never participates in the Git analysis.
+`/git commit` resolves the bundled `General` profile and passes its model, tools, and base system prompt to the shared process runner. Git-specific rules come from `prompts/commit.md`. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends.
 
-The command never calls `pi.sendUserMessage()`, `pi.sendMessage()`, or `pi.appendEntry()` for new runs. While running, it uses a temporary tool-style widget above the editor and a status item; the lifecycle callback updates these as soon as the new process PID is available. Direct runner calls do not enter the shared `subagent-runs` widget.
-
-At every terminal state, the temporary UI is cleared and the result is reported with `ctx.ui.notify()`. The notification contains only a short summary, PID, and duration; the full independent-process report is written to stderr for diagnostics. New runs do not persist any result entry into the parent session, so reload will not show a commit report. The legacy `git-commit-isolated-run` renderer remains only so older JSONL sessions can still display their historical custom entries.
-
-If no inline core requirement is provided, `/git commit` first opens an optional input box. Leaving it empty uses the default workflow; entering text makes that content the core standard for change selection, analysis, and commit message generation.
-
-The child process performs the entire workflow with **sub-repo first** ordering:
+The process runs with `--mode json -p --no-session` in the current `ctx.cwd`. It performs the workflow with **sub-repo first** ordering:
 
 1. **Discover sub-repos**: `git submodule status` + scan for nested `.git` directories
 2. **Commit sub-repos** (deepest path first)
 3. **Commit main repo** (picks up sub-repo reference updates)
 4. Report conflicts, empty changes, commit failures, or push failures through the completion notification and stderr
 
-Default commit agent: `General`.
-
-This is **process and conversation isolation, not worktree isolation**: the independent Pi main agent has an ephemeral context/session but intentionally operates on the same `ctx.cwd` workspace so it can commit and push the real repository changes. Its final report is not persisted into the parent conversation.
+Only one background commit can run in a Pi instance at a time. This does not create a worktree; the process intentionally commits and pushes the real workspace.
 
 Examples:
 
 ```text
 /git commit
 /git commit 这次只提交配置调整
-/git commit General 这次提交前先确认 changelog 规则
-/git commit --agent General 这次提交只处理 blog 配置
+/git commit 提交前先确认 changelog 规则
 ```
 
 ### pull

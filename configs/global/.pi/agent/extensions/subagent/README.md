@@ -105,11 +105,11 @@ Subagents running:
   ⏳ Explore pid=1234 8s — 查找资源加载相关代码
 ```
 
-## Direct Isolated Runner
+## Shared Process Runner
 
-Trusted sibling extensions can call `runAgentInIsolatedProcess()` to start an independent Pi process without creating a parent-session message or `subagent` tool result. The new process runs its own main agent with the selected configuration. The runner uses the same ephemeral JSON process path as the tool (`--mode json -p --no-session`) and returns a normalized result containing status, PID, model, start/end time, exit code, and final output.
+`agent-runner.ts` exports `runAgentProcess({ profile, task, cwd, signal, onUpdate })`. It applies the resolved profile's model, tools, and system prompt to an ephemeral Pi process using `--mode json -p --no-session`, then returns normalized lifecycle and output data.
 
-`IsolatedAgentProcessOptions.onUpdate` receives lifecycle updates as the process starts, runs, and reaches a terminal state. Direct calls deliberately do not publish into the shared `subagent-runs` widget; the caller owns its UI and persistence policy. `/git commit` uses a temporary status/widget while running in the background, then reports completion with a UI notification and stderr. It never sends a delegation prompt, child output, custom entry, or summary as a parent message.
+The runner has no Pi extension, session, or UI dependency. The `subagent` tool and sibling extensions such as Git provide their own discovery, presentation, and result handling.
 
 ## Worktree Isolation
 

@@ -8,24 +8,25 @@
 
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
 - Plan 与 subagent 解除双向协议耦合：Plan 只保留 Pi 中已经注册且已激活的普通 `subagent` 工具，不再解析或约束子代理的 Plan 专属 policy；subagent 也不再读取 Plan 状态。
-- Subagent 提供可由可信扩展直接调用的隔离进程 runner，并增加 PID、模型、起止时间和终态生命周期回调；直接调用不再进入通用 `subagent-runs` 小组件。`/git commit` 将命令编排、Pi 渲染适配与运行时依赖装配分离，复用现有 JSON 子进程执行链路并以后台任务运行。
+- Subagent 将 Pi 子进程执行提取为无 UI、无会话依赖的共享 runner；通用子代理工具和 `/git commit` 分别负责自己的展示与结果适配。
 
 ### 问题修复
 
 - 修复手动关闭 Plan 后隐藏提醒残留、分支间状态串扰及 Execute 偶发不继续的问题；手动退出现在仅同步模式并发送一次性 inactive 提醒，只有显式 Execute 才通过 `followUp` 触发执行。
 - Plan 状态升级为带 revision、工具快照与一次性通知的 v2 结构，兼容历史 `{ enabled }` 数据；恢复过程只读取当前分支且不重复写入状态。
-- 修复 `/git commit` 先向主会话注入委派消息、再把子代理工具结果传回主 Agent 的上下文污染；命令现在直接启动独立 Pi 进程，由该进程的主 agent 在后台完成 Git 工作，父 LLM 不触发思考且当前任务不被提交流程阻塞。运行中只显示临时工具框和状态栏，结束后通过通知反馈结果，不再向父会话追加 custom 条目。
+- `/git commit` 固定复用 `General` profile，在后台 Pi 进程中执行独立的 Git 任务模板；命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
+- 修复 Windows 下 Pi 子进程通过 shell 传递任务参数的转义风险，并补齐 AbortSignal 的强制终止回退与监听器、定时器、临时文件清理。
 
 ### 测试/质量
 
 - 增加基于 Node `node:test` 的 Plan 回归覆盖，验证统一入口、pending 生命周期、上下文归一化、分支恢复、工具交集与主 Agent 写操作防护。
-- 增加 `/git commit` 隔离回归和子进程参数测试，覆盖父 Pi API 不被访问、命令启动后台进程后立即返回、重复启动防护、临时 UI/PID 生命周期、成功、取消、未知 agent、启动异常、非零退出、headless 输出、旧结果框渲染兼容及模型/工具/系统提示继承。
+- 增加 Git 后台任务与共享 runner 回归，覆盖立即返回、重复启动、General profile 继承、PID/耗时 UI、失败与 headless 输出、无 shell 启动及进程资源清理。
 
 ### 风险与迁移说明
 
 - Plan 的命令 denylist 仅是主 Agent 的辅助防护而非安全沙箱；已激活的可写/full-access subagent 仍可能修改工作区，需要通过 subagent 自身能力配置或禁用该工具进行隔离。
 - Plan 扩展最低要求 Pi 0.80.4，以使用稳定的 `agent_settled` 生命周期事件。
-- `/git commit` 隔离进程、agent 上下文和父 LLM，但不隔离 worktree；独立进程仍在真实 `ctx.cwd` 中提交和推送。结果通知不持久化到父会话 JSONL；同步全局扩展后必须执行 `/reload` 才会替换已加载模块。
+- `/git commit` 现在只接受可选的核心要求，不再解析 agent 参数；后台进程仍在真实 `ctx.cwd` 中提交和推送。同步全局扩展后需执行 `/reload`。
 
 ## [v0.1.0] - 2026-06-30
 

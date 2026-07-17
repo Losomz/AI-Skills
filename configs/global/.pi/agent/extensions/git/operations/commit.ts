@@ -1,10 +1,9 @@
 import { createCommitOperation } from "../commit-operation.js";
-import { createCommitRunWidget } from "../commit-renderer.js";
-import { discoverAgents } from "../../subagent/agents.js";
-import { runAgentInIsolatedProcess } from "../../subagent/index.js";
+import { discoverAgents, findAgentByName } from "../../subagent/agents.js";
+import { runAgentProcess } from "../../subagent/agent-runner.js";
 
 export default createCommitOperation({
 	discoverAgents: (cwd) => discoverAgents(cwd, "project").agents,
-	runAgent: runAgentInIsolatedProcess,
-	createWidget: createCommitRunWidget,
+	findAgentByName,
+	runAgentProcess,
 });
