@@ -24,6 +24,12 @@ import {
 	runAgentProcess,
 	type AgentProcessStatus,
 } from "./agent-runner.js";
+import {
+	buildShortcutInvocationPrompt,
+	getHashShortcutCompletions,
+	parseShortcutPlan,
+	SUBAGENT_SHORTCUT_HINT_VALUE,
+} from "./shortcuts.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -107,7 +113,7 @@ function updateSubagentWidget(ctx: ExtensionContext): void {
 	}
 
 	const now = Date.now();
-	const lines = ["Subagents running:"];
+	const lines = [`Subagents running (${runs.length}):`];
 	for (const run of runs.slice(0, 6)) {
 		const taskPreview = run.task.length > 48 ? `${run.task.slice(0, 48)}...` : run.task;
 		const pid = run.pid ? `pid=${run.pid}` : "pid=?";
@@ -117,7 +123,6 @@ function updateSubagentWidget(ctx: ExtensionContext): void {
 	if (runs.length > 6) lines.push(`  ... +${runs.length - 6} more`);
 
 	ctx.ui.setWidget("subagent-runs", lines, { placement: "aboveEditor" });
-	ctx.ui.setStatus("subagent-runs", `subagents:${runs.length}`);
 }
 
 function formatTokens(count: number): string {
@@ -517,112 +522,6 @@ const SubagentParams = Type.Object({
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
-
-function buildSubagentInvocationPrompt(params: Record<string, unknown>): string {
-	return `请立即调用 \`subagent\` 工具来运行子 agent，不要改写任务，不要先询问确认。\n\n参数：\n\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\`\n\n子 agent 返回后，请用中文简要总结结果。`;
-}
-
-function buildAgentInvocationPrompt(agent: AgentConfig, task: string): string {
-	return buildSubagentInvocationPrompt({
-		agent: agent.name,
-		task,
-		agentScope: "project",
-		confirmProjectAgents: false,
-	});
-}
-
-interface ShortcutTask {
-	agent: AgentConfig;
-	task: string;
-}
-
-interface ShortcutPlan {
-	mode: "single" | "parallel" | "chain";
-	tasks: ShortcutTask[];
-}
-
-function parseShortcutMode(text: string): { mode?: "parallel" | "chain"; rest: string } {
-	const match = text.match(/^#(chain|parallel)\b\s*([\s\S]*)$/i);
-	if (!match) return { rest: text };
-	return { mode: match[1].toLowerCase() as "parallel" | "chain", rest: match[2].trim() };
-}
-
-function parseShortcutSegment(segment: string, agents: AgentConfig[]): ShortcutTask | undefined {
-	const match = segment.trim().match(/^#([\p{L}\p{N}_-]+)(?:\s+([\s\S]*))?$/u);
-	if (!match) return undefined;
-
-	const agent = findAgentByName(agents, match[1]);
-	if (!agent) return undefined;
-
-	return { agent, task: (match[2] ?? "").trim() };
-}
-
-function parseShortcutPlan(text: string, agents: AgentConfig[]): ShortcutPlan | undefined {
-	const trimmed = text.trim();
-	if (!trimmed.startsWith("#")) return undefined;
-
-	const { mode: explicitMode, rest } = parseShortcutMode(trimmed);
-	if (!rest) return undefined;
-
-	const hasChainDelimiter = rest.includes(">");
-	const hasParallelDelimiter = rest.includes("|");
-	if (!explicitMode && hasChainDelimiter && hasParallelDelimiter) return undefined;
-
-	const mode = explicitMode ?? (hasChainDelimiter ? "chain" : hasParallelDelimiter ? "parallel" : "single");
-	const delimiter = mode === "chain" ? ">" : mode === "parallel" ? "|" : undefined;
-	const segments = delimiter ? rest.split(delimiter) : [rest];
-	const tasks = segments.map((segment) => parseShortcutSegment(segment, agents));
-
-	if (tasks.some((task) => !task)) return undefined;
-	return { mode, tasks: tasks as ShortcutTask[] };
-}
-
-function buildShortcutInvocationPrompt(plan: ShortcutPlan): string {
-	if (plan.mode === "single") {
-		return buildAgentInvocationPrompt(plan.tasks[0].agent, plan.tasks[0].task);
-	}
-
-	if (plan.mode === "parallel") {
-		return buildSubagentInvocationPrompt({
-			tasks: plan.tasks.map((task) => ({ agent: task.agent.name, task: task.task })),
-			agentScope: "project",
-			confirmProjectAgents: false,
-		});
-	}
-
-	return buildSubagentInvocationPrompt({
-		chain: plan.tasks.map((task, index) => ({
-			agent: task.agent.name,
-			task: index === 0 || task.task.includes("{previous}") ? task.task : `${task.task}\n\n上一步结果：{previous}`,
-		})),
-		agentScope: "project",
-		confirmProjectAgents: false,
-	});
-}
-
-const SUBAGENT_SHORTCUT_HINT_VALUE = "__subagent_shortcut_hint__";
-
-function getHashShortcutCompletions(agents: AgentConfig[], prefixText: string) {
-	const normalized = prefixText.toLowerCase();
-	const agentItems = agents
-		.map((agent) => ({
-			value: `#${agent.name} `,
-			label: `#${agent.name}`,
-			description: agent.description,
-		}))
-		.filter((item) => item.label.slice(1).toLowerCase().startsWith(normalized));
-
-	if (agentItems.length === 0) return [];
-
-	return [
-		...agentItems,
-		{
-			value: SUBAGENT_SHORTCUT_HINT_VALUE,
-			label: "提示：> 串行执行，| 并行执行",
-			description: "提示项，选择后不会插入内容",
-		},
-	];
-}
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {

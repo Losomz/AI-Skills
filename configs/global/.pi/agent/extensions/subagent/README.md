@@ -12,6 +12,8 @@ Use `#AgentName` in the editor to quickly delegate to bundled agents:
 #Explore 查本地逻辑 | #Scout 查上游实现
 ```
 
+- `#AgentName` is a shortcut delegation request to the main agent, not a raw direct dispatch. The main agent first summarizes relevant conversation context and, when necessary, inspects the repository for key facts before building a self-contained subagent task.
+- The selected agents, execution mode, task count, and order remain fixed. The main agent enriches the task context but does not replace the requested route or perform the delegated work itself.
 - `>` runs agents sequentially with `{previous}` passed to the next step.
 - `|` runs agents in parallel.
 - Agent names are matched case-insensitively and completed dynamically from the extension's same-directory `agents/*.md`.
@@ -101,7 +103,7 @@ While subagents are running, the extension shows a widget above the editor with:
 Example:
 
 ```text
-Subagents running:
+Subagents running (1):
   ⏳ Explore pid=1234 8s — 查找资源加载相关代码
 ```
 
