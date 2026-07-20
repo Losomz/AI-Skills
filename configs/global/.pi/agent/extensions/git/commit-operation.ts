@@ -73,6 +73,32 @@ function firstOutputLine(output: string): string {
 		.find(Boolean) ?? "(no output)";
 }
 
+/**
+ * Extract the structured commit brief the background commit agent is asked to
+ * return at the end of its run. Falls back to the first useful output line
+ * when the agent did not follow the requested `提交：...\n状态：...` shape.
+ */
+export function extractCommitBrief(output: string): string {
+	const lines = output.replace(/\r\n/g, "\n").split("\n");
+	let startIndex = -1;
+	for (let i = lines.length - 1; i >= 0; i--) {
+		if (lines[i].trim().startsWith("提交：")) {
+			startIndex = i;
+			break;
+		}
+	}
+	if (startIndex === -1) return firstOutputLine(output);
+
+	const brief: string[] = [];
+	for (let i = startIndex; i < lines.length; i++) {
+		const line = lines[i].trimEnd();
+		brief.push(line);
+		if (line.trim().startsWith("状态：")) break;
+	}
+	const text = brief.join("\n").trim();
+	return text || firstOutputLine(output);
+}
+
 function setCommitWidget(ctx: ExtensionContext, run: ActiveCommitRun | undefined): void {
 	if (!ctx.hasUI) return;
 	try {
@@ -136,10 +162,14 @@ function failureOutcome(error: unknown, run: ActiveCommitRun): CommitOutcome {
 }
 
 function formatOutcome(outcome: CommitOutcome): string {
+	if (outcome.status === "completed") {
+		const pid = outcome.pid === undefined ? "" : ` · PID ${outcome.pid}`;
+		const elapsed = ` · ${formatDuration(outcome.endedAt - outcome.startedAt)}`;
+		return `Git commit 已完成${pid}${elapsed}\n${extractCommitBrief(outcome.output)}`;
+	}
 	const pid = outcome.pid === undefined ? "" : `，PID ${outcome.pid}`;
 	const elapsed = `，耗时 ${formatDuration(outcome.endedAt - outcome.startedAt)}`;
 	const summary = firstOutputLine(outcome.output);
-	if (outcome.status === "completed") return `Git commit 已完成${pid}${elapsed}：${summary}`;
 	if (outcome.status === "aborted") return `Git commit 已取消${pid}${elapsed}：${summary}`;
 	return `Git commit 失败（退出码 ${outcome.exitCode ?? "unknown"}${pid}）${elapsed}：${summary}`;
 }
@@ -155,7 +185,8 @@ function clearActiveRun(ctx: ExtensionContext, run: ActiveCommitRun): boolean {
 function reportOutcome(ctx: ExtensionContext, writeHeadless: (message: string) => void, outcome: CommitOutcome): void {
 	const message = formatOutcome(outcome);
 	if (!ctx.hasUI) {
-		writeHeadless(`${message}\n${outcome.output}`);
+		writeHeadless(message);
+		if (outcome.status === "failed") writeHeadless(outcome.output);
 		return;
 	}
 	ctx.ui.notify(message, outcome.status === "failed" ? "error" : "info");

@@ -6,7 +6,7 @@ import type {
 	AgentProcessResult,
 	AgentProcessUpdate,
 } from "../../subagent/agent-runner.ts";
-import { buildCommitTask, createCommitOperation } from "../commit-operation.ts";
+import { buildCommitTask, createCommitOperation, extractCommitBrief } from "../commit-operation.ts";
 
 const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 
@@ -33,7 +33,7 @@ function successfulResult(overrides: Partial<AgentProcessResult> = {}): AgentPro
 		messages: [],
 		usage: { ...EMPTY_USAGE },
 		exitCode: 0,
-		output: "提交并推送完成",
+		output: "提交：\n- 主仓库：✨ feat: 示例改动 · 7b8c9d0 · push origin/main 成功\n状态：1/1 commit 成功；1/1 push 成功",
 		stderr: "",
 		failed: false,
 		pid: 4321,
@@ -132,6 +132,34 @@ test("Git prompt template injects the core standard and rejects an invalid templ
 	assert.throws(() => buildCommitTask("x", "missing placeholder"), /CORE_STANDARD/);
 });
 
+test("extractCommitBrief parses structured lists, no-change, and falls back", () => {
+	const multiRepo = [
+		"一些前置说明，",
+		"提交：",
+		"- 子仓库 packages/core：🐛 fix(core): 修复配置 · a1b2c3d · push origin/main 成功",
+		"- 主仓库：🔧 chore: 更新子仓库引用 · 7b8c9d0 · push origin/main 成功",
+		"状态：2/2 commit 成功；2/2 push 成功",
+		"(不应被包含的尾部内容)",
+	].join("\n");
+	assert.equal(
+		extractCommitBrief(multiRepo),
+		[
+			"提交：",
+			"- 子仓库 packages/core：🐛 fix(core): 修复配置 · a1b2c3d · push origin/main 成功",
+			"- 主仓库：🔧 chore: 更新子仓库引用 · 7b8c9d0 · push origin/main 成功",
+			"状态：2/2 commit 成功；2/2 push 成功",
+		].join("\n"),
+	);
+
+	assert.equal(
+		extractCommitBrief("提交：无可提交内容\n状态：未创建 commit；未执行 push"),
+		"提交：无可提交内容\n状态：未创建 commit；未执行 push",
+	);
+
+	assert.equal(extractCommitBrief("仅一段普通总结"), "仅一段普通总结");
+	assert.equal(extractCommitBrief(""), "(no output)");
+});
+
 test("/git commit passes the complete General profile and returns before the background run", async () => {
 	const run = deferred<AgentProcessResult>();
 	let captured: AgentProcessOptions | undefined;
@@ -165,6 +193,8 @@ test("/git commit passes the complete General profile and returns before the bac
 	assert.equal(widgets.at(-1)?.content, undefined);
 	assert.equal(notifications.at(-1)?.level, "info");
 	assert.match(notifications.at(-1)?.message ?? "", /Git commit 已完成.*PID 9876/);
+	assert.match(notifications.at(-1)?.message ?? "", /- 主仓库：✨ feat: 示例改动/);
+	assert.match(notifications.at(-1)?.message ?? "", /状态：1\/1 commit 成功；1\/1 push 成功/);
 	assert.deepEqual(stderr, []);
 });
 
@@ -301,5 +331,5 @@ test("headless mode writes startup and completion to stderr without a UI object"
 
 	assert.equal(output.length, 2);
 	assert.match(output[0], /Git commit 已启动 · General/);
-	assert.match(output[1], /Git commit 已完成.*提交并推送完成/s);
+	assert.match(output[1], /Git commit 已完成[\s\S]*1\/1 push 成功/);
 });
