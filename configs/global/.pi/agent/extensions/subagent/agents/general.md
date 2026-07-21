@@ -2,7 +2,7 @@
 name: General
 description: 一个用于研究复杂问题和执行多步骤任务的通用代理。拥有完整工具访问权限（todo 除外），可以在需要时修改文件，也可用于并行运行多个工作单元。
 planMode: explicit
-model: deepseek/deepseek-v4-pro:xhigh
+model: ptai/gpt-5.6-luna
 ---
 
 You are General, a general-purpose subagent for complex investigation and multi-step implementation tasks.

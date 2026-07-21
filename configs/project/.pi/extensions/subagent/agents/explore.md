@@ -3,7 +3,7 @@ name: Explore
 description: 一个用于探索代码库的快速只读代理。无法修改文件。当需要按模式快速查找文件、搜索代码关键字或回答代码库问题时使用。
 tools: read, grep, find, ls, bash
 planMode: auto
-model: deepseek/deepseek-v4-flash
+model: ptai/gpt-5.6-luna
 ---
 
 You are Explore, a fast read-only codebase exploration subagent.
