@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 功能变更
+
+- Subagent 新增 `/subagent-model` 与 `Alt+M`，可从 Pi 当前可复用认证的模型目录中搜索并为内置 agent 保存本机覆盖；覆盖通过 `~/.pi/agent/subagent-models.json` 持久化，并同样应用于 `/git commit` 使用的 `General` profile。
+
 ### 架构/重构
 
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
@@ -12,6 +16,7 @@
 
 ### 问题修复
 
+- 补回 Subagent 已拆分但未纳入仓库的 `shortcuts.ts` 与快捷委派测试，避免配置同步后因入口导入缺失而加载失败。
 - 修复手动关闭 Plan 后隐藏提醒残留、分支间状态串扰及 Execute 偶发不继续的问题；手动退出现在仅同步模式并发送一次性 inactive 提醒，只有显式 Execute 才通过 `followUp` 触发执行。
 - Plan 状态升级为带 revision、工具快照与一次性通知的 v2 结构，兼容历史 `{ enabled }` 数据；恢复过程只读取当前分支且不重复写入状态。
 - `/git commit` 固定复用 `General` profile，在后台 Pi 进程中执行独立的 Git 任务模板；命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
@@ -19,6 +24,7 @@
 
 ### 测试/质量
 
+- 增加 Subagent 模型目录、配置校验、原子写入、跨进程锁恢复、override 优先级、特殊模型 ID 和 Git profile 校验回归。
 - 增加基于 Node `node:test` 的 Plan 回归覆盖，验证统一入口、pending 生命周期、上下文归一化、分支恢复、工具交集与主 Agent 写操作防护。
 - 增加 Git 后台任务与共享 runner 回归，覆盖立即返回、重复启动、General profile 继承、PID/耗时 UI、失败与 headless 输出、无 shell 启动及进程资源清理。
 

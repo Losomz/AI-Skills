@@ -16,7 +16,7 @@ import * as os from "node:os";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, findAgentByName } from "./agents.js";
@@ -24,6 +24,16 @@ import {
 	runAgentProcess,
 	type AgentProcessStatus,
 } from "./agent-runner.js";
+import { getModelAvailability } from "./model-catalog.js";
+import {
+	formatModelReference,
+	getSubagentModelConfigPath,
+	isEffectiveAgentConfig,
+	loadSubagentModelConfig,
+	resolveAgentModels,
+	type EffectiveAgentConfig,
+} from "./model-overrides.js";
+import { registerSubagentModelPicker } from "./model-picker.js";
 import {
 	buildShortcutInvocationPrompt,
 	getHashShortcutCompletions,
@@ -43,22 +53,62 @@ function getAgentCapability(agent: AgentConfig): string {
 	return "limited-tools";
 }
 
-function formatAgentInventoryLine(agent: AgentConfig): string {
+function formatAgentInventoryLine(agent: AgentConfig, includeModel = true): string {
 	const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(",") : "default/full";
-	const model = agent.model ? `, model:${agent.model}` : "";
+	const modelSource = isEffectiveAgentConfig(agent) && agent.modelSource === "override" ? " (override)" : "";
+	const model = includeModel && agent.model ? `, model:${agent.model}${modelSource}` : "";
 	return `- ${agent.name}: ${getAgentCapability(agent)}, tools:${tools}${model}. ${agent.description}`;
 }
 
-function formatAgentInventory(agents: AgentConfig[]): string {
+function formatAgentInventory(agents: AgentConfig[], includeModel = true): string {
 	if (agents.length === 0) return "Available subagents: none.";
 	return [
 		"Available subagents (names are case-insensitive; use the canonical names below):",
-		...agents.map(formatAgentInventoryLine),
+		...agents.map((agent) => formatAgentInventoryLine(agent, includeModel)),
 	].join("\n");
 }
 
 function buildSubagentSystemHint(agents: AgentConfig[]): string {
 	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
+}
+
+function discoverEffectiveAgents(cwd: string, scope: AgentScope) {
+	const discovery = discoverAgents(cwd, scope);
+	const loaded = loadSubagentModelConfig(getSubagentModelConfigPath(getAgentDir()));
+	return {
+		...discovery,
+		agents: resolveAgentModels(discovery.agents, loaded.config),
+		modelConfigError: loaded.error,
+	};
+}
+
+function getRequestedAgentNames(params: {
+	agent?: string;
+	tasks?: Array<{ agent: string }>;
+	chain?: Array<{ agent: string }>;
+}): string[] {
+	const names: string[] = [];
+	if (params.agent) names.push(params.agent);
+	if (params.tasks) names.push(...params.tasks.map((task) => task.agent));
+	if (params.chain) names.push(...params.chain.map((step) => step.agent));
+	return [...new Set(names.map((name) => name.trim().toLowerCase()))];
+}
+
+function findUnavailableModelOverrides(
+	ctx: ExtensionContext,
+	agents: EffectiveAgentConfig[],
+	requestedNames: string[],
+): string[] {
+	const issues: string[] = [];
+	for (const requestedName of requestedNames) {
+		const agent = findAgentByName(agents, requestedName);
+		if (!agent || !isEffectiveAgentConfig(agent) || agent.modelSource !== "override" || !agent.modelOverride) continue;
+		const availability = getModelAvailability(ctx.modelRegistry, agent.modelOverride);
+		if (availability !== "available") {
+			issues.push(`${agent.name}: ${formatModelReference(agent.modelOverride)} is ${availability.replace("-", " ")}`);
+		}
+	}
+	return issues;
 }
 
 type RunStatus = AgentProcessStatus;
@@ -524,6 +574,8 @@ const SubagentParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+	registerSubagentModelPicker(pi);
+
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
 
@@ -577,13 +629,13 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		const discovery = discoverAgents(ctx.cwd, "project");
+		const discovery = discoverEffectiveAgents(ctx.cwd, "project");
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${buildSubagentSystemHint(discovery.agents)}`,
 		};
 	});
 
-	const initialInventory = formatAgentInventory(discoverAgents(process.cwd(), "project").agents);
+	const initialInventory = formatAgentInventory(discoverEffectiveAgents(process.cwd(), "project").agents, false);
 
 	pi.registerTool({
 		name: "subagent",
@@ -606,7 +658,7 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const agentScope: AgentScope = params.agentScope ?? "project";
-			const discovery = discoverAgents(ctx.cwd, agentScope);
+			const discovery = discoverEffectiveAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? false;
 
@@ -639,9 +691,30 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (hasList) {
+				const configWarning = discovery.modelConfigError
+					? `\n\nModel override warning: ${discovery.modelConfigError}`
+					: "";
 				return {
-					content: [{ type: "text", text: formatAgentInventory(agents) }],
+					content: [{ type: "text", text: `${formatAgentInventory(agents)}${configWarning}` }],
 					details: makeDetails("single")([]),
+				};
+			}
+
+			if (discovery.modelConfigError && ctx.hasUI) {
+				ctx.ui.notify(`${discovery.modelConfigError} Falling back to agent profile models.`, "warning");
+			}
+
+			const modelIssues = findUnavailableModelOverrides(ctx, agents, getRequestedAgentNames(params));
+			if (modelIssues.length > 0) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Subagent model override is unavailable. Run /subagent-model to select another model or reset the override.\n${modelIssues.join("\n")}`,
+						},
+					],
+					details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
+					isError: true,
 				};
 			}
 

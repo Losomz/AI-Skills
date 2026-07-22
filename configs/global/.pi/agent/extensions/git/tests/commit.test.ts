@@ -248,6 +248,31 @@ test("missing General or an invalid prompt template fails before process startup
 	});
 });
 
+test("an invalid resolved General model blocks commit before prompting or process startup", async () => {
+	let starts = 0;
+	let validations = 0;
+	const operation = createCommitOperation({
+		...createDependencies(async () => {
+			starts++;
+			return successfulResult();
+		}),
+		validateAgentProfile(profile) {
+			validations++;
+			assert.equal(profile.name, "General");
+			return "configured model is unavailable";
+		},
+	});
+	const { ctx, notifications, widgets } = createUiContext("must not be requested");
+
+	await operation.handle(poisonParentApi as never, ctx, "提交");
+
+	assert.equal(validations, 1);
+	assert.equal(starts, 0);
+	assert.equal(widgets.length, 0);
+	assert.equal(notifications.at(-1)?.level, "error");
+	assert.match(notifications.at(-1)?.message ?? "", /configured model is unavailable/);
+});
+
 test("a second /git commit reports the active PID and does not start another process", async () => {
 	const run = deferred<AgentProcessResult>();
 	let starts = 0;

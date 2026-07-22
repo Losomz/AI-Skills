@@ -18,6 +18,7 @@ export interface CommitOperationDependencies {
 	discoverAgents: (cwd: string) => AgentConfig[];
 	findAgentByName: (agents: AgentConfig[], name: string) => AgentConfig | undefined;
 	runAgentProcess: (options: AgentProcessOptions) => Promise<AgentProcessResult>;
+	validateAgentProfile?: (profile: AgentConfig, ctx: ExtensionContext) => string | undefined;
 	loadPromptTemplate?: () => string | Promise<string>;
 	writeHeadless?: (message: string) => void;
 }
@@ -225,6 +226,11 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 			}
 			if (!profile) {
 				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：未找到 ${COMMIT_AGENT} profile。`, "error");
+				return;
+			}
+			const profileError = dependencies.validateAgentProfile?.(profile, ctx);
+			if (profileError) {
+				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${profileError}`, "error");
 				return;
 			}
 

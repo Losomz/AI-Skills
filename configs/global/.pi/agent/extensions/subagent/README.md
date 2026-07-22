@@ -38,6 +38,55 @@ Discover available agents without running a task:
 }
 ```
 
+## Model Selection
+
+Use `/subagent-model` or `Alt+M` to change the model used by a bundled subagent:
+
+```text
+/subagent-model
+/subagent-model Explore
+/subagent-model Explore aimaster/gpt-5.6-luna
+/subagent-model Explore reset
+```
+
+With no model argument, TUI mode opens a searchable selector. RPC mode falls back to standard extension `select` requests. Models come from Pi's `ModelRegistry`; only models with non-runtime authentication are selectable. Parent-only credentials such as a one-off `--api-key` are excluded because they are not inherited by the child process. Dynamically registered providers must also be loaded by the child Pi startup environment.
+
+Selections are stored locally in:
+
+```text
+~/.pi/agent/subagent-models.json
+```
+
+```json
+{
+  "version": 1,
+  "overrides": {
+    "project:explore": { "provider": "aimaster", "id": "gpt-5.6-luna" }
+  }
+}
+```
+
+The file contains only provider/model identifiers, never credentials. It is runtime user state and should not be copied from this repository over an existing local file. Model precedence is:
+
+```text
+local subagent-models.json override
+> agent Markdown frontmatter.model
+> child Pi default model
+```
+
+`reset` removes the local override and restores the profile default. Changes apply to future runs only; already running subagents keep their startup snapshot. The same resolved `General` profile is used by `/git commit`.
+
+The picker currently manages the bundled extension-local agents used by the default `project` scope. Overrides store only `provider/id`; they do not configure thinking level. A `:thinking` suffix in the Markdown profile applies again after `reset`, while an active override uses the child Pi default thinking setting. If the override file is malformed, normal delegation falls back to profile models and reports a warning, while the picker refuses to overwrite the damaged file until it is repaired or removed.
+
+The model implementation is split by responsibility:
+
+```text
+model-catalog.ts    # Pi ModelRegistry adapter and refresh coalescing
+model-overrides.ts  # versioned local config, locking, atomic writes, profile resolution
+model-picker.ts     # command, shortcut, searchable TUI, and RPC fallback
+agent-runner.ts     # isolated child process only
+```
+
 ## Bundled Agents
 
 Bundled agents live in:
@@ -109,7 +158,7 @@ Subagents running (1):
 
 ## Shared Process Runner
 
-`agent-runner.ts` exports `runAgentProcess({ profile, task, cwd, signal, onUpdate })`. It applies the resolved profile's model, tools, and system prompt to an ephemeral Pi process using `--mode json -p --no-session`, then returns normalized lifecycle and output data.
+`agent-runner.ts` exports `runAgentProcess({ profile, task, cwd, signal, onUpdate })`. It applies the resolved profile's model, tools, and system prompt to an ephemeral Pi process using `--mode json -p --no-session`, then returns normalized lifecycle and output data. Model discovery and override persistence stay outside the runner so sibling extensions can reuse the same immutable resolved profile.
 
 The runner has no Pi extension, session, or UI dependency. The `subagent` tool and sibling extensions such as Git provide their own discovery, presentation, and result handling.
 

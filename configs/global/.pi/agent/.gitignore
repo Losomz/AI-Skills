@@ -1,6 +1,9 @@
 # Pi runtime/sensitive files; do not track in AgentFramework templates
 auth.json
 sessions/
+subagent-models.json
+subagent-models.json.lock
+.subagent-models.json.*.tmp
 pi-debug.log
 npm/
 /git/
