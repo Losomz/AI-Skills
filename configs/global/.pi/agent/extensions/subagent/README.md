@@ -38,18 +38,20 @@ Discover available agents without running a task:
 }
 ```
 
-## Model Selection
+## Subagent Configuration
 
-Use `/subagent-model` or `Alt+M` to change the model used by a bundled subagent:
+Use `/subagent` or `Alt+M` to open the bundled subagent configuration panel. The slash command and the model-facing `subagent` tool use separate Pi namespaces and can share the same name.
 
-```text
-/subagent-model
-/subagent-model Explore
-/subagent-model Explore aimaster/gpt-5.6-luna
-/subagent-model Explore reset
-```
+The TUI follows Pi's settings/model-configuration interaction:
 
-With no model argument, TUI mode opens a searchable selector. RPC mode falls back to standard extension `select` requests. Models come from Pi's `ModelRegistry`; only models with non-runtime authentication are selectable. Parent-only credentials such as a one-off `--api-key` are excluded because they are not inherited by the child process. Dynamically registered providers must also be loaded by the child Pi startup environment.
+1. Select an agent and press Enter or Space to open its searchable model list.
+2. Selecting a model returns to the configuration panel and only stages the change.
+3. Press `Ctrl+S` to save all staged changes. The panel stays open after saving.
+4. Escape returns from the model list or closes the main panel; unsaved changes are discarded.
+
+Both levels show keybinding-aware operation hints in the footer, together with `(unsaved)`, `saving…`, `saved`, or an error message when applicable. RPC mode uses standard extension `select` requests followed by an explicit Save/Cancel step.
+
+Models come from Pi's `ModelRegistry`; only models with non-runtime authentication are selectable. Parent-only credentials such as a one-off `--api-key` are excluded because they are not inherited by the child process. Dynamically registered providers must also be loaded by the child Pi startup environment.
 
 Selections are stored locally in:
 
@@ -71,19 +73,20 @@ The file contains only provider/model identifiers, never credentials. It is runt
 ```text
 local subagent-models.json override
 > agent Markdown frontmatter.model
-> child Pi default model
+> current main Agent model
+> child Pi default model (only when the main Agent has no model)
 ```
 
-`reset` removes the local override and restores the profile default. Changes apply to future runs only; already running subagents keep their startup snapshot. The same resolved `General` profile is used by `/git commit`.
+Choosing `Default` removes the local override. The bundled agents do not pin a profile model, so their default follows the main Agent model at the time a run starts. Switching the main Agent model affects future default subagent runs, while explicitly configured subagents remain pinned. Already running subagents keep their startup snapshot. The same resolved `General` profile is used by `/git commit`.
 
-The picker currently manages the bundled extension-local agents used by the default `project` scope. Overrides store only `provider/id`; they do not configure thinking level. A `:thinking` suffix in the Markdown profile applies again after `reset`, while an active override uses the child Pi default thinking setting. If the override file is malformed, normal delegation falls back to profile models and reports a warning, while the picker refuses to overwrite the damaged file until it is repaired or removed.
+The panel currently manages the bundled extension-local agents used by the default `project` scope. Overrides store only `provider/id`; they do not configure thinking level. If the override file is malformed, normal delegation falls back to profile or main Agent models and reports a warning, while the panel refuses to overwrite the damaged file until it is repaired or removed.
 
 The model implementation is split by responsibility:
 
 ```text
 model-catalog.ts    # Pi ModelRegistry adapter and refresh coalescing
-model-overrides.ts  # versioned local config, locking, atomic writes, profile resolution
-model-picker.ts     # command, shortcut, searchable TUI, and RPC fallback
+model-overrides.ts  # versioned local config, locking, atomic batch writes, model resolution
+model-picker.ts     # /subagent settings panel, model submenu, shortcut, and RPC fallback
 agent-runner.ts     # isolated child process only
 ```
 
@@ -104,14 +107,14 @@ To add a new agent, add another markdown file with frontmatter:
 name: MyAgent
 description: What this agent is for
 tools: read, grep, find, ls
-# Optional. If omitted, the current Pi default model is used.
+# Optional. If omitted, the current main Agent model is used.
 # model: provider/model
 ---
 
 System prompt for the agent.
 ```
 
-If `model` is omitted, the subagent uses the current Pi default model.
+If `model` is omitted and no local override is saved, the subagent uses the current main Agent model captured when the run starts.
 
 ## Default Agents
 

@@ -2,12 +2,11 @@
 name: Explore
 description: 一个用于探索代码库的快速只读代理。无法修改文件。当需要按模式快速查找文件、搜索代码关键字或回答代码库问题时使用。
 tools: read, grep, find, ls, bash
-model: openai-codex/gpt-5.3-codex-spark
 ---
 
 You are Explore, a fast read-only codebase exploration subagent.
 
-Use the current default model unless this file explicitly specifies a `model` in frontmatter.
+Unless this file explicitly specifies a `model` in frontmatter, the parent extension supplies the current main Agent model.
 
 ## Capabilities
 

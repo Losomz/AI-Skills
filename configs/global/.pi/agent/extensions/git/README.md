@@ -48,7 +48,7 @@ git/
 
 ### commit
 
-`/git commit` resolves the bundled `General` profile and passes its model, tools, and base system prompt to the shared process runner. A model selected through `/subagent-model General` overrides the Markdown profile default here as well. Git-specific rules come from `prompts/commit.md`. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends.
+`/git commit` resolves the bundled `General` profile and passes its model, tools, and base system prompt to the shared process runner. A model saved through `/subagent` overrides the default here as well; without an override, `General` follows the current main Agent model. Git-specific rules come from `prompts/commit.md`. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends.
 
 The process runs with `--mode json -p --no-session` in the current `ctx.cwd`. It performs the workflow with **sub-repo first** ordering:
 

@@ -24,12 +24,18 @@ export interface ModelConfigLoadResult {
 	error?: string;
 }
 
-export type AgentModelSource = "override" | "profile" | "pi-default";
+export type AgentModelSource = "override" | "profile" | "main-agent" | "pi-default";
 
 export interface EffectiveAgentConfig extends AgentConfig {
 	modelSource: AgentModelSource;
 	profileModel?: string;
+	mainModel?: ModelReference;
 	modelOverride?: ModelReference;
+}
+
+export interface AgentModelOverrideUpdate {
+	agent: Pick<AgentConfig, "source" | "name">;
+	model?: ModelReference;
 }
 
 function emptyConfig(): SubagentModelConfig {
@@ -105,6 +111,12 @@ export function formatModelReference(model: ModelReference): string {
 	return `${model.provider}/${model.id}`;
 }
 
+export function modelReferenceFrom(
+	model: { provider: string; id: string } | undefined,
+): ModelReference | undefined {
+	return model ? { provider: model.provider, id: model.id } : undefined;
+}
+
 export function parseCanonicalModelReference(value: string): ModelReference | undefined {
 	const trimmed = value.trim();
 	const slash = trimmed.indexOf("/");
@@ -117,29 +129,48 @@ export function parseCanonicalModelReference(value: string): ModelReference | un
 export function resolveAgentModel(
 	agent: AgentConfig,
 	config: SubagentModelConfig,
+	mainModel?: ModelReference,
 ): EffectiveAgentConfig {
 	const modelOverride = config.overrides[getAgentModelKey(agent)];
+	const mainModelSnapshot = mainModel ? { ...mainModel } : undefined;
 	if (modelOverride) {
 		return {
 			...agent,
 			model: formatModelReference(modelOverride),
 			modelSource: "override",
 			profileModel: agent.model,
+			mainModel: mainModelSnapshot,
 			modelOverride: { ...modelOverride },
+		};
+	}
+	if (agent.model) {
+		return {
+			...agent,
+			modelSource: "profile",
+			profileModel: agent.model,
+			mainModel: mainModelSnapshot,
+		};
+	}
+	if (mainModelSnapshot) {
+		return {
+			...agent,
+			model: formatModelReference(mainModelSnapshot),
+			modelSource: "main-agent",
+			mainModel: mainModelSnapshot,
 		};
 	}
 	return {
 		...agent,
-		modelSource: agent.model ? "profile" : "pi-default",
-		profileModel: agent.model,
+		modelSource: "pi-default",
 	};
 }
 
 export function resolveAgentModels(
 	agents: readonly AgentConfig[],
 	config: SubagentModelConfig,
+	mainModel?: ModelReference,
 ): EffectiveAgentConfig[] {
-	return agents.map((agent) => resolveAgentModel(agent, config));
+	return agents.map((agent) => resolveAgentModel(agent, config, mainModel));
 }
 
 export function isEffectiveAgentConfig(agent: AgentConfig): agent is EffectiveAgentConfig {
@@ -229,19 +260,21 @@ async function withConfigMutation<T>(configPath: string, mutate: () => Promise<T
 	}
 }
 
-export async function setAgentModelOverride(
-	agent: AgentConfig,
-	model: ModelReference | undefined,
+export async function setAgentModelOverrides(
+	updates: readonly AgentModelOverrideUpdate[],
 	configPath: string,
 ): Promise<SubagentModelConfig> {
 	return withConfigMutation(configPath, async () => {
 		const loaded = loadSubagentModelConfig(configPath);
 		if (loaded.error) throw new Error(loaded.error);
+		if (updates.length === 0) return loaded.config;
 
-		const key = getAgentModelKey(agent);
 		const overrides = { ...loaded.config.overrides };
-		if (model) overrides[key] = decodeModelReference(model, key);
-		else delete overrides[key];
+		for (const update of updates) {
+			const key = getAgentModelKey(update.agent);
+			if (update.model) overrides[key] = decodeModelReference(update.model, key);
+			else delete overrides[key];
+		}
 
 		const config: SubagentModelConfig = {
 			version: SUBAGENT_MODEL_CONFIG_VERSION,
@@ -250,4 +283,12 @@ export async function setAgentModelOverride(
 		await writeConfigAtomic(configPath, config);
 		return config;
 	});
+}
+
+export async function setAgentModelOverride(
+	agent: AgentConfig,
+	model: ModelReference | undefined,
+	configPath: string,
+): Promise<SubagentModelConfig> {
+	return setAgentModelOverrides([{ agent, model }], configPath);
 }

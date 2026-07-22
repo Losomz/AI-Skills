@@ -1,42 +1,57 @@
-import { getAgentDir, type ExtensionAPI, type ExtensionContext, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import {
+	DynamicBorder,
+	getAgentDir,
+	getSettingsListTheme,
+	keyText,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type KeybindingsManager,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
+	Container,
 	fuzzyFilter,
 	type Focusable,
 	Input,
+	type SettingItem,
+	SettingsList,
+	Spacer,
+	Text,
 	truncateToWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { type AgentConfig, discoverAgents, findAgentByName } from "./agents.js";
+import { type AgentConfig, discoverAgents } from "./agents.js";
 import {
-	findAvailableModel,
-	getModelAvailability,
 	ModelCatalogService,
+	modelReferencesEqual,
 	type ModelCatalogItem,
 	type ModelCatalogSnapshot,
 } from "./model-catalog.js";
 import {
 	formatModelReference,
+	getAgentModelKey,
 	getSubagentModelConfigPath,
 	loadSubagentModelConfig,
-	parseCanonicalModelReference,
+	modelReferenceFrom,
 	resolveAgentModel,
-	setAgentModelOverride,
-	type EffectiveAgentConfig,
+	setAgentModelOverrides,
+	type AgentModelOverrideUpdate,
 	type ModelReference,
+	type SubagentModelConfig,
 } from "./model-overrides.js";
 
-const RESET_CHOICE_KEY = "__profile_default__";
+const DEFAULT_CHOICE_KEY = "__default__";
 const MAX_VISIBLE_MODELS = 10;
 
-export type ModelPickerResult =
-	| { kind: "reset" }
+type PickerTheme = ExtensionContext["ui"]["theme"];
+
+type ModelPickerResult =
+	| { kind: "default" }
 	| { kind: "model"; model: ModelCatalogItem };
 
 type PickerChoice =
-	| { key: typeof RESET_CHOICE_KEY; kind: "reset" }
+	| { key: typeof DEFAULT_CHOICE_KEY; kind: "default" }
 	| { key: string; kind: "model"; model: ModelCatalogItem };
-
-type PickerTheme = ExtensionContext["ui"]["theme"];
 
 function modelSearchText(model: ModelCatalogItem): string {
 	return `${model.provider} ${model.id} ${model.canonical} ${model.name}`;
@@ -46,18 +61,47 @@ function normalizeSingleLine(value: string): string {
 	return value.replace(/[\r\n]+/g, " ").trim();
 }
 
-export class SubagentModelPickerComponent implements Component, Focusable {
+function optionalReferencesEqual(left: ModelReference | undefined, right: ModelReference | undefined): boolean {
+	if (!left || !right) return left === right;
+	return modelReferencesEqual(left, right);
+}
+
+function cloneReference(model: ModelReference | undefined): ModelReference | undefined {
+	return model ? { ...model } : undefined;
+}
+
+function defaultModelDescription(agent: AgentConfig, mainModel: ModelReference | undefined): string {
+	if (agent.model) return `profile: ${agent.model}`;
+	if (mainModel) return `main Agent: ${formatModelReference(mainModel)}`;
+	return "child Pi default";
+}
+
+function defaultModelValue(agent: AgentConfig, mainModel: ModelReference | undefined): string | undefined {
+	return agent.model ?? (mainModel ? formatModelReference(mainModel) : undefined);
+}
+
+function keyName(keybinding: Parameters<typeof keyText>[0], fallback: string): string {
+	return keyText(keybinding) || fallback;
+}
+
+function hintPart(theme: PickerTheme, keys: string, description: string): string {
+	return theme.fg("dim", keys) + theme.fg("muted", ` ${description}`);
+}
+
+class SubagentModelPickerComponent implements Component, Focusable {
 	private readonly searchInput = new Input();
 	private readonly currentCanonical?: string;
-	private readonly profileModel?: string;
+	private readonly defaultDescription: string;
 	private readonly hasOverride: boolean;
 	private readonly keybindings: KeybindingsManager;
 	private readonly theme: PickerTheme;
+	private readonly agentName: string;
 	private readonly onDone: (result: ModelPickerResult | undefined) => void;
 	private models: ModelCatalogItem[] = [];
 	private choices: PickerChoice[] = [];
 	private selectedIndex = 0;
 	private status = "Refreshing available models…";
+	private statusIsWarning = false;
 	private disposed = false;
 	private _focused = false;
 
@@ -71,19 +115,27 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 	}
 
 	constructor(options: {
-		agent: EffectiveAgentConfig;
+		agent: AgentConfig;
+		configuredModel?: ModelReference;
+		mainModel?: ModelReference;
 		models: ModelCatalogItem[];
+		catalogError?: string;
+		refreshed: boolean;
 		theme: PickerTheme;
 		keybindings: KeybindingsManager;
 		onDone: (result: ModelPickerResult | undefined) => void;
 	}) {
-		this.currentCanonical = options.agent.model;
-		this.profileModel = options.agent.profileModel;
-		this.hasOverride = options.agent.modelSource === "override";
+		this.agentName = options.agent.name;
+		this.currentCanonical = options.configuredModel
+			? formatModelReference(options.configuredModel)
+			: defaultModelValue(options.agent, options.mainModel);
+		this.defaultDescription = defaultModelDescription(options.agent, options.mainModel);
+		this.hasOverride = Boolean(options.configuredModel);
 		this.theme = options.theme;
 		this.keybindings = options.keybindings;
 		this.onDone = options.onDone;
 		this.models = this.sortModels(options.models);
+		this.updateStatus(options.models.length, options.catalogError, options.refreshed);
 		this.rebuildChoices(true);
 	}
 
@@ -98,6 +150,15 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 		});
 	}
 
+	private updateStatus(modelCount: number, error: string | undefined, refreshed: boolean): void {
+		this.statusIsWarning = Boolean(error);
+		this.status = error
+			? `Refresh warning: ${normalizeSingleLine(error)}`
+			: refreshed
+				? `${modelCount} available models`
+				: "Refreshing available models…";
+	}
+
 	private getSelectedChoice(): PickerChoice | undefined {
 		return this.choices[this.selectedIndex];
 	}
@@ -106,15 +167,16 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 		const previousKey = this.getSelectedChoice()?.key;
 		const query = this.searchInput.getValue().trim();
 		const filteredModels = query ? fuzzyFilter(this.models, query, modelSearchText) : this.models;
-		const resetMatches = !query || ["default", "profile", "reset", "默认", "恢复"].some((term) => term.includes(query.toLowerCase()));
+		const normalizedQuery = query.toLowerCase();
+		const defaultMatches = !query || ["default", "main", "profile", "默认", "恢复"].some((term) => term.includes(normalizedQuery));
 		this.choices = [
-			...(resetMatches ? ([{ key: RESET_CHOICE_KEY, kind: "reset" }] as PickerChoice[]) : []),
+			...(defaultMatches ? ([{ key: DEFAULT_CHOICE_KEY, kind: "default" }] as PickerChoice[]) : []),
 			...filteredModels.map((model): PickerChoice => ({ key: model.canonical.toLowerCase(), kind: "model", model })),
 		];
 
 		let selected = previousKey ? this.choices.findIndex((choice) => choice.key === previousKey) : -1;
 		if (selected < 0 && selectCurrent && !this.hasOverride) {
-			selected = this.choices.findIndex((choice) => choice.key === RESET_CHOICE_KEY);
+			selected = this.choices.findIndex((choice) => choice.key === DEFAULT_CHOICE_KEY);
 		}
 		if (selected < 0 && selectCurrent && this.currentCanonical) {
 			selected = this.choices.findIndex((choice) => choice.key === this.currentCanonical?.toLowerCase());
@@ -125,9 +187,7 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 	setCatalog(snapshot: ModelCatalogSnapshot): void {
 		if (this.disposed) return;
 		this.models = this.sortModels(snapshot.items);
-		this.status = snapshot.error
-			? `Refresh warning: ${normalizeSingleLine(snapshot.error)}`
-			: "Model catalog refresh completed; cached entries may be retained.";
+		this.updateStatus(snapshot.items.length, snapshot.error, snapshot.refreshed);
 		this.rebuildChoices(true);
 	}
 
@@ -158,7 +218,7 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 		}
 		if (this.keybindings.matches(data, "tui.select.confirm")) {
 			const selected = this.getSelectedChoice();
-			if (selected?.kind === "reset") this.onDone({ kind: "reset" });
+			if (selected?.kind === "default") this.onDone({ kind: "default" });
 			else if (selected?.kind === "model") this.onDone({ kind: "model", model: selected.model });
 			return;
 		}
@@ -173,22 +233,20 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 
 	render(width: number): string[] {
 		if (width <= 0) return [];
-		const lineWidth = width;
-		const fit = (text: string) => truncateToWidth(text, lineWidth, "");
+		const fit = (text: string) => truncateToWidth(text, width, "");
 		const lines: string[] = [];
-		const border = this.theme.fg("borderAccent", "─".repeat(Math.max(1, lineWidth)));
-		lines.push(border);
-		lines.push(fit(this.theme.fg("accent", this.theme.bold("Select Subagent Model"))));
+		lines.push(fit(this.theme.fg("accent", this.theme.bold(`Model · ${this.agentName}`))));
 		lines.push(
 			fit(
 				this.theme.fg("muted", "Current: ") +
-					this.theme.fg("text", this.currentCanonical ?? "Pi default") +
-					(this.profileModel ? this.theme.fg("dim", `  profile:${this.profileModel}`) : ""),
+					this.theme.fg("text", this.currentCanonical ?? "child Pi default") +
+					(this.hasOverride ? this.theme.fg("warning", "  configured") : this.theme.fg("dim", "  default")),
 			),
 		);
+		lines.push(fit(this.theme.fg("muted", `Default: ${this.defaultDescription}`)));
 		lines.push("");
 		lines.push(fit(this.theme.fg("muted", "Search by provider, model id, or name:")));
-		for (const inputLine of this.searchInput.render(Math.max(1, lineWidth - 2))) {
+		for (const inputLine of this.searchInput.render(Math.max(1, width - 2))) {
 			lines.push(fit(`  ${inputLine}`));
 		}
 		lines.push("");
@@ -209,10 +267,10 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 				const selected = index === this.selectedIndex;
 				const prefix = selected ? "→ " : "  ";
 				let text: string;
-				if (choice.kind === "reset") {
-					text = `${prefix}Restore profile default (${this.profileModel ?? "Pi default"})`;
+				if (choice.kind === "default") {
+					text = `${prefix}Default (${this.defaultDescription})${this.hasOverride ? "" : " ✓"}`;
 				} else {
-					const active = choice.model.canonical.toLowerCase() === this.currentCanonical?.toLowerCase();
+					const active = this.hasOverride && choice.model.canonical.toLowerCase() === this.currentCanonical?.toLowerCase();
 					text = `${prefix}${choice.model.id} [${choice.model.provider}]${active ? " ✓" : ""}`;
 				}
 				lines.push(fit(selected ? this.theme.fg("accent", text) : text));
@@ -229,9 +287,15 @@ export class SubagentModelPickerComponent implements Component, Focusable {
 		}
 
 		lines.push("");
-		lines.push(fit(this.theme.fg(this.status.startsWith("Refresh warning") ? "warning" : "dim", this.status)));
-		lines.push(fit(this.theme.fg("dim", "↑↓ navigate • enter select • esc cancel • type to search")));
-		lines.push(border);
+		lines.push(fit(this.theme.fg(this.statusIsWarning ? "warning" : "dim", this.status)));
+		const navigation = `${keyName("tui.select.up", "up")}/${keyName("tui.select.down", "down")}`;
+		const footer = [
+			hintPart(this.theme, navigation, "navigate"),
+			hintPart(this.theme, keyName("tui.select.confirm", "enter"), "select"),
+			hintPart(this.theme, keyName("tui.select.cancel", "esc"), "back"),
+			this.theme.fg("muted", "type to search"),
+		].join(this.theme.fg("dim", " · "));
+		lines.push(...wrapTextWithAnsi(footer, width));
 		return lines;
 	}
 }
@@ -241,101 +305,351 @@ function report(ctx: ExtensionContext, message: string, type: "info" | "warning"
 	else process.stderr.write(`${message}\n`);
 }
 
-function formatEffectiveModel(agent: EffectiveAgentConfig): string {
-	const suffix = agent.modelSource === "override" ? " (override)" : agent.modelSource === "profile" ? " (profile)" : "";
-	return `${agent.model ?? "Pi default"}${suffix}`;
-}
+class SubagentConfigurationPanel implements Component, Focusable {
+	private readonly container = new Container();
+	private readonly titleText: Text;
+	private readonly defaultText: Text;
+	private readonly catalogText: Text;
+	private readonly footerText: Text;
+	private readonly settingsList: SettingsList;
+	private readonly agents: AgentConfig[];
+	private readonly mainModel?: ModelReference;
+	private readonly theme: PickerTheme;
+	private readonly keybindings: KeybindingsManager;
+	private readonly requestRender: () => void;
+	private readonly onPersist: (updates: AgentModelOverrideUpdate[]) => Promise<SubagentModelConfig>;
+	private readonly onClose: () => void;
+	private readonly persisted = new Map<string, ModelReference | undefined>();
+	private readonly staged = new Map<string, ModelReference | undefined>();
+	private models: ModelCatalogItem[];
+	private activePicker?: SubagentModelPickerComponent;
+	private catalogError?: string;
+	private catalogRefreshed: boolean;
+	private saving = false;
+	private saveStatus?: { type: "info" | "success" | "error"; message: string };
+	private disposed = false;
+	private _focused = false;
 
-async function selectAgent(ctx: ExtensionContext, agents: EffectiveAgentConfig[]): Promise<EffectiveAgentConfig | undefined> {
-	if (!ctx.hasUI) return undefined;
-	const labels = new Map<string, EffectiveAgentConfig>();
-	for (const agent of agents) {
-		labels.set(`${agent.name} — ${formatEffectiveModel(agent)}`, agent);
+	get focused(): boolean {
+		return this._focused;
 	}
-	const selected = await ctx.ui.select("Select subagent", [...labels.keys()]);
-	return selected ? labels.get(selected) : undefined;
-}
 
-async function selectModel(
-	ctx: ExtensionContext,
-	catalog: ModelCatalogService,
-	agent: EffectiveAgentConfig,
-	onCatalog: (items: ModelCatalogItem[]) => void,
-): Promise<ModelPickerResult | undefined> {
-	if (ctx.mode === "tui") {
-		const initial = catalog.getSnapshot(ctx.modelRegistry);
-		onCatalog(initial.items);
-		return ctx.ui.custom<ModelPickerResult | undefined>((tui, theme, keybindings, done) => {
-			const picker = new SubagentModelPickerComponent({
-				agent,
-				models: initial.items,
-				theme,
-				keybindings,
-				onDone: done,
-			});
-			void catalog.refresh(ctx.modelRegistry).then((snapshot) => {
-				onCatalog(snapshot.items);
-				if (picker.isDisposed()) return;
-				picker.setCatalog(snapshot);
-				tui.requestRender();
-			});
-			return picker;
+	set focused(value: boolean) {
+		this._focused = value;
+		if (this.activePicker) this.activePicker.focused = value;
+	}
+
+	constructor(options: {
+		agents: AgentConfig[];
+		config: SubagentModelConfig;
+		mainModel?: ModelReference;
+		catalog: ModelCatalogSnapshot;
+		theme: PickerTheme;
+		keybindings: KeybindingsManager;
+		requestRender: () => void;
+		onPersist: (updates: AgentModelOverrideUpdate[]) => Promise<SubagentModelConfig>;
+		onClose: () => void;
+	}) {
+		this.agents = options.agents;
+		this.mainModel = cloneReference(options.mainModel);
+		this.models = options.catalog.items;
+		this.catalogError = options.catalog.error;
+		this.catalogRefreshed = options.catalog.refreshed;
+		this.theme = options.theme;
+		this.keybindings = options.keybindings;
+		this.requestRender = options.requestRender;
+		this.onPersist = options.onPersist;
+		this.onClose = options.onClose;
+
+		for (const agent of this.agents) {
+			const configured = cloneReference(options.config.overrides[getAgentModelKey(agent)]);
+			this.persisted.set(getAgentModelKey(agent), configured);
+			this.staged.set(getAgentModelKey(agent), cloneReference(configured));
+		}
+
+		const items: SettingItem[] = this.agents.map((agent) => ({
+			id: getAgentModelKey(agent),
+			label: agent.name,
+			description: agent.description,
+			currentValue: this.formatAgentValue(agent),
+			submenu: (_currentValue, done) => this.createModelPicker(agent, done),
+		}));
+
+		this.titleText = new Text("", 0, 0);
+		this.defaultText = new Text("", 0, 0);
+		this.catalogText = new Text("", 0, 0);
+		this.footerText = new Text("", 0, 0);
+		this.settingsList = new SettingsList(
+			items,
+			Math.min(Math.max(items.length, 1), 10),
+			getSettingsListTheme(),
+			() => undefined,
+			() => {
+				if (this.saving) {
+					this.saveStatus = { type: "info", message: "Wait for the current save to finish" };
+					this.updateFooter();
+					this.requestRender();
+					return;
+				}
+				this.dispose();
+				this.onClose();
+			},
+		);
+
+		this.container.addChild(new DynamicBorder((text: string) => this.theme.fg("accent", text)));
+		this.container.addChild(new Spacer(1));
+		this.container.addChild(this.titleText);
+		this.container.addChild(this.defaultText);
+		this.container.addChild(this.catalogText);
+		this.container.addChild(new Spacer(1));
+		this.container.addChild(this.settingsList);
+		this.container.addChild(new Spacer(1));
+		this.container.addChild(this.footerText);
+		this.container.addChild(new Spacer(1));
+		this.container.addChild(new DynamicBorder((text: string) => this.theme.fg("accent", text)));
+		this.updateStaticText();
+		this.updateFooter();
+	}
+
+	private createModelPicker(agent: AgentConfig, done: (selectedValue?: string) => void): Component {
+		const key = getAgentModelKey(agent);
+		const picker = new SubagentModelPickerComponent({
+			agent,
+			configuredModel: this.staged.get(key),
+			mainModel: this.mainModel,
+			models: this.models,
+			catalogError: this.catalogError,
+			refreshed: this.catalogRefreshed,
+			theme: this.theme,
+			keybindings: this.keybindings,
+			onDone: (result) => {
+				this.activePicker = undefined;
+				if (!result) {
+					done();
+					this.requestRender();
+					return;
+				}
+				const model = result.kind === "model"
+					? { provider: result.model.provider, id: result.model.id }
+					: undefined;
+				this.stage(agent, model);
+				done(this.formatAgentValue(agent));
+				this.requestRender();
+			},
+		});
+		picker.focused = this._focused;
+		this.activePicker = picker;
+		return picker;
+	}
+
+	private formatAgentValue(agent: AgentConfig): string {
+		const configured = this.staged.get(getAgentModelKey(agent));
+		return configured
+			? formatModelReference(configured)
+			: `Default · ${defaultModelDescription(agent, this.mainModel)}`;
+	}
+
+	private stage(agent: AgentConfig, model: ModelReference | undefined): void {
+		this.staged.set(getAgentModelKey(agent), cloneReference(model));
+		this.saveStatus = undefined;
+		this.updateFooter();
+	}
+
+	private isDirty(): boolean {
+		return this.agents.some((agent) => {
+			const key = getAgentModelKey(agent);
+			return !optionalReferencesEqual(this.persisted.get(key), this.staged.get(key));
 		});
 	}
 
-	if (ctx.mode === "rpc") {
-		const snapshot = await catalog.refresh(ctx.modelRegistry);
-		onCatalog(snapshot.items);
-		if (snapshot.error) report(ctx, `Model refresh warning: ${normalizeSingleLine(snapshot.error)}`, "warning");
-		const options = new Map<string, ModelPickerResult>();
-		const current = agent.modelSource === "override"
-			? snapshot.items.find((model) => model.canonical.toLowerCase() === agent.model?.toLowerCase())
-			: undefined;
-		if (current) options.set(`${current.canonical} — ${current.name} (current)`, { kind: "model", model: current });
-		options.set(`Restore profile default (${agent.profileModel ?? "Pi default"})`, { kind: "reset" });
-		for (const model of snapshot.items) {
-			if (model === current) continue;
-			options.set(`${model.canonical} — ${model.name}`, { kind: "model", model });
+	private changedUpdates(): AgentModelOverrideUpdate[] {
+		const updates: AgentModelOverrideUpdate[] = [];
+		for (const agent of this.agents) {
+			const key = getAgentModelKey(agent);
+			const persisted = this.persisted.get(key);
+			const staged = this.staged.get(key);
+			if (!optionalReferencesEqual(persisted, staged)) {
+				updates.push({ agent, model: cloneReference(staged) });
+			}
 		}
-		const selected = await ctx.ui.select(`Select model for ${agent.name}`, [...options.keys()]);
-		return selected ? options.get(selected) : undefined;
+		return updates;
 	}
 
-	return undefined;
+	private async save(): Promise<void> {
+		if (this.saving || this.disposed) return;
+		const updates = this.changedUpdates();
+		if (updates.length === 0) {
+			this.saveStatus = { type: "info", message: "No changes to save" };
+			this.updateFooter();
+			this.requestRender();
+			return;
+		}
+
+		this.saving = true;
+		this.saveStatus = { type: "info", message: "saving…" };
+		this.updateFooter();
+		this.requestRender();
+		try {
+			const saved = await this.onPersist(updates);
+			for (const agent of this.agents) {
+				const key = getAgentModelKey(agent);
+				this.persisted.set(key, cloneReference(saved.overrides[key]));
+			}
+			this.saveStatus = { type: "success", message: "saved" };
+		} catch (error) {
+			this.saveStatus = {
+				type: "error",
+				message: error instanceof Error ? error.message : String(error),
+			};
+		} finally {
+			this.saving = false;
+			if (!this.disposed) {
+				this.updateFooter();
+				this.requestRender();
+			}
+		}
+	}
+
+	private updateStaticText(): void {
+		this.titleText.setText(this.theme.fg("accent", this.theme.bold("Subagent Configuration")));
+		this.defaultText.setText(
+			this.theme.fg(
+				"muted",
+				`Unconfigured agents use ${this.mainModel ? `the main Agent model (${formatModelReference(this.mainModel)})` : "the child Pi default model"}.`,
+			),
+		);
+		this.catalogText.setText(
+			this.catalogError
+				? this.theme.fg("warning", `Model refresh warning: ${normalizeSingleLine(this.catalogError)}`)
+				: this.theme.fg(
+						"dim",
+						this.catalogRefreshed ? `${this.models.length} available models` : "Refreshing available models…",
+					),
+		);
+	}
+
+	private updateFooter(): void {
+		const navigation = `${keyName("tui.select.up", "up")}/${keyName("tui.select.down", "down")}`;
+		const base = [
+			hintPart(this.theme, navigation, "navigate"),
+			hintPart(this.theme, `${keyName("tui.select.confirm", "enter")}/space`, "configure"),
+			hintPart(this.theme, keyName("app.models.save", "ctrl+s"), "save"),
+			hintPart(this.theme, keyName("tui.select.cancel", "esc"), "close"),
+		].join(this.theme.fg("dim", " · "));
+
+		let status = "";
+		if (this.saveStatus) {
+			const color = this.saveStatus.type === "error"
+				? "error"
+				: this.saveStatus.type === "success"
+					? "success"
+					: "muted";
+			status = this.theme.fg(color, ` · ${this.saveStatus.message}`);
+		}
+		if (this.isDirty() && !this.saving) {
+			status += this.theme.fg("warning", " · (unsaved)");
+		}
+		this.footerText.setText(base + status);
+	}
+
+	setCatalog(snapshot: ModelCatalogSnapshot): void {
+		if (this.disposed) return;
+		this.models = snapshot.items;
+		this.catalogError = snapshot.error;
+		this.catalogRefreshed = snapshot.refreshed;
+		this.activePicker?.setCatalog(snapshot);
+		this.updateStaticText();
+	}
+
+	handleInput(data: string): void {
+		if (this.keybindings.matches(data, "app.models.save")) {
+			void this.save();
+			return;
+		}
+		this.settingsList.handleInput(data);
+		this.requestRender();
+	}
+
+	render(width: number): string[] {
+		return this.container.render(width);
+	}
+
+	invalidate(): void {
+		this.container.invalidate();
+		this.updateStaticText();
+		this.updateFooter();
+	}
+
+	isDisposed(): boolean {
+		return this.disposed;
+	}
+
+	dispose(): void {
+		this.disposed = true;
+		this.activePicker?.dispose();
+	}
 }
 
-export interface ParsedSubagentModelArgs {
-	agentName?: string;
-	model?: string;
+async function configureRpc(
+	ctx: ExtensionContext,
+	catalog: ModelCatalogService,
+	agents: AgentConfig[],
+	config: SubagentModelConfig,
+	mainModel: ModelReference | undefined,
+	configPath: string,
+): Promise<void> {
+	const labels = new Map<string, AgentConfig>();
+	for (const agent of agents) {
+		const effective = resolveAgentModel(agent, config, mainModel);
+		labels.set(`${agent.name} — ${effective.model ?? "child Pi default"}${effective.modelSource === "override" ? " (configured)" : " (default)"}`, agent);
+	}
+	const selectedAgentLabel = await ctx.ui.select("Configure subagent", [...labels.keys()]);
+	const agent = selectedAgentLabel ? labels.get(selectedAgentLabel) : undefined;
+	if (!agent) return;
+
+	const snapshot = await catalog.refresh(ctx.modelRegistry);
+	if (snapshot.error) report(ctx, `Model refresh warning: ${normalizeSingleLine(snapshot.error)}`, "warning");
+	const choices = new Map<string, ModelPickerResult>();
+	choices.set(`Default — ${defaultModelDescription(agent, mainModel)}`, { kind: "default" });
+	for (const model of snapshot.items) {
+		choices.set(`${model.canonical} — ${model.name}`, { kind: "model", model });
+	}
+	const selectedModelLabel = await ctx.ui.select(`Model for ${agent.name}`, [...choices.keys()]);
+	const choice = selectedModelLabel ? choices.get(selectedModelLabel) : undefined;
+	if (!choice) return;
+
+	const confirmation = await ctx.ui.select("Save subagent configuration?", ["Save", "Cancel"]);
+	if (confirmation !== "Save") return;
+	const model = choice.kind === "model"
+		? { provider: choice.model.provider, id: choice.model.id }
+		: undefined;
+	await setAgentModelOverrides([{ agent, model }], configPath);
+	report(
+		ctx,
+		model
+			? `${agent.name} saved with ${formatModelReference(model)}.`
+			: `${agent.name} now uses ${defaultModelDescription(agent, mainModel)}.`,
+		"info",
+	);
 }
 
-export function parseSubagentModelArgs(args: string): ParsedSubagentModelArgs | undefined {
-	const tokens = args.trim().split(/\s+/).filter(Boolean);
-	if (tokens.length === 0) return {};
-	if (tokens.length > 2) return undefined;
-	return { agentName: tokens[0], model: tokens[1] };
-}
-
-export interface SubagentModelPickerOptions {
+export interface SubagentConfigurationOptions {
 	configPath?: string;
 	discoverAgents?: (cwd: string) => AgentConfig[];
 }
 
-export function registerSubagentModelPicker(pi: ExtensionAPI, options: SubagentModelPickerOptions = {}): void {
+export function registerSubagentConfiguration(pi: ExtensionAPI, options: SubagentConfigurationOptions = {}): void {
 	const catalog = new ModelCatalogService();
 	const configPath = options.configPath ?? getSubagentModelConfigPath(getAgentDir());
 	const getAgents = options.discoverAgents ?? ((cwd: string) => discoverAgents(cwd, "project").agents);
-	let completionModels: ModelCatalogItem[] = [];
 
 	const handle = async (rawArgs: string, ctx: ExtensionContext): Promise<void> => {
 		if (!ctx.isIdle()) {
-			report(ctx, "Subagent model configuration is available after the current agent run settles.", "warning");
+			report(ctx, "Subagent configuration is available after the current agent run settles.", "warning");
 			return;
 		}
-
-		const parsed = parseSubagentModelArgs(rawArgs);
-		if (!parsed) {
-			report(ctx, "Usage: /subagent-model [Agent] [provider/model|reset]", "error");
+		if (rawArgs.trim()) {
+			report(ctx, "Usage: /subagent", "error");
 			return;
 		}
 
@@ -344,98 +658,67 @@ export function registerSubagentModelPicker(pi: ExtensionAPI, options: SubagentM
 			report(ctx, loaded.error, "error");
 			return;
 		}
-		const baseAgents = getAgents(ctx.cwd);
-		const effectiveAgents = baseAgents.map((agent) => resolveAgentModel(agent, loaded.config));
-		const agent = parsed.agentName
-			? (findAgentByName(effectiveAgents, parsed.agentName) as EffectiveAgentConfig | undefined)
-			: await selectAgent(ctx, effectiveAgents);
+		const agents = getAgents(ctx.cwd);
+		if (agents.length === 0) {
+			report(ctx, "No bundled subagents are available.", "warning");
+			return;
+		}
+		const mainModel = modelReferenceFrom(ctx.model);
 
-		if (!agent) {
-			if (parsed.agentName) {
-				report(ctx, `Unknown subagent "${parsed.agentName}". Available: ${baseAgents.map((item) => item.name).join(", ") || "none"}.`, "error");
-			} else if (!ctx.hasUI) {
-				report(ctx, "An agent name is required outside TUI/RPC mode.", "error");
+		if (ctx.mode === "tui") {
+			const initial = catalog.getSnapshot(ctx.modelRegistry);
+			await ctx.ui.custom<void>((tui, theme, keybindings, done) => {
+				const panel = new SubagentConfigurationPanel({
+					agents,
+					config: loaded.config,
+					mainModel,
+					catalog: initial,
+					theme,
+					keybindings,
+					requestRender: () => tui.requestRender(),
+					onPersist: (updates) => setAgentModelOverrides(updates, configPath),
+					onClose: () => done(undefined),
+				});
+				void catalog.refresh(ctx.modelRegistry).then(
+					(snapshot) => {
+						if (panel.isDisposed()) return;
+						panel.setCatalog(snapshot);
+						tui.requestRender();
+					},
+					(error) => {
+						if (panel.isDisposed()) return;
+						panel.setCatalog({
+							items: initial.items,
+							error: error instanceof Error ? error.message : String(error),
+							refreshed: true,
+						});
+						tui.requestRender();
+					},
+				);
+				return panel;
+			});
+			return;
+		}
+
+		if (ctx.mode === "rpc") {
+			try {
+				await configureRpc(ctx, catalog, agents, loaded.config, mainModel, configPath);
+			} catch (error) {
+				report(ctx, error instanceof Error ? error.message : String(error), "error");
 			}
 			return;
 		}
 
-		let choice: ModelPickerResult | undefined;
-		if (parsed.model) {
-			if (["reset", "default", "profile"].includes(parsed.model.toLowerCase())) {
-				choice = { kind: "reset" };
-			} else {
-				const reference = parseCanonicalModelReference(parsed.model);
-				if (!reference) {
-					report(ctx, `Invalid model reference "${parsed.model}". Use provider/model.`, "error");
-					return;
-				}
-				const snapshot = await catalog.refresh(ctx.modelRegistry);
-				completionModels = snapshot.items;
-				const model = findAvailableModel(ctx.modelRegistry, reference);
-				if (!model) {
-					const status = getModelAvailability(ctx.modelRegistry, reference);
-					report(ctx, `Model ${formatModelReference(reference)} is ${status.replace("-", " ")} and cannot be selected.`, "error");
-					return;
-				}
-				choice = { kind: "model", model };
-			}
-		} else {
-			if (!ctx.hasUI) {
-				report(ctx, "A model reference or reset is required outside TUI/RPC mode.", "error");
-				return;
-			}
-			choice = await selectModel(ctx, catalog, agent, (items) => {
-				completionModels = items;
-			});
-		}
-
-		if (!choice) return;
-		try {
-			if (choice.kind === "reset") {
-				await setAgentModelOverride(agent, undefined, configPath);
-				report(ctx, `${agent.name} restored to ${agent.profileModel ?? "the child Pi default"}.`, "info");
-				return;
-			}
-			const reference: ModelReference = { provider: choice.model.provider, id: choice.model.id };
-			await setAgentModelOverride(agent, reference, configPath);
-			report(ctx, `${agent.name} will use ${choice.model.canonical} for future runs.`, "info");
-		} catch (error) {
-			report(ctx, error instanceof Error ? error.message : String(error), "error");
-		}
+		report(ctx, "/subagent configuration requires TUI or RPC mode.", "error");
 	};
 
-	pi.registerCommand("subagent-model", {
-		description: "Select the model used by a subagent",
-		getArgumentCompletions: (prefix) => {
-			const leadingWhitespace = /^\s/.test(prefix);
-			const trimmed = prefix.trimStart();
-			const separator = trimmed.indexOf(" ");
-			if (separator < 0 && !leadingWhitespace) {
-				const agents = getAgents(process.cwd());
-				const normalized = trimmed.toLowerCase();
-				const items = agents
-					.filter((agent) => agent.name.toLowerCase().startsWith(normalized))
-					.map((agent) => ({ value: agent.name, label: agent.name, description: agent.description }));
-				return items.length > 0 ? items : null;
-			}
-			const agentName = separator >= 0 ? trimmed.slice(0, separator).trim() : "";
-			const modelPrefix = separator >= 0 ? trimmed.slice(separator + 1).trim().toLowerCase() : "";
-			const values = ["reset", ...completionModels.map((model) => model.canonical)];
-			const items = values
-				.filter((value) => value.toLowerCase().startsWith(modelPrefix))
-				.map((value) => ({ value: `${agentName} ${value}`.trim(), label: value }));
-			return items.length > 0 ? items : null;
-		},
+	pi.registerCommand("subagent", {
+		description: "Configure subagent models",
 		handler: handle,
 	});
 
 	pi.registerShortcut("alt+m", {
-		description: "Select the model used by a subagent",
+		description: "Configure subagent models",
 		handler: async (ctx) => handle("", ctx),
-	});
-
-	pi.on("session_start", (_event, ctx) => {
-		// Keep child/headless startup network-free; the picker refreshes on demand.
-		completionModels = catalog.getSnapshot(ctx.modelRegistry).items;
 	});
 }

@@ -6,7 +6,7 @@
 
 ### 功能变更
 
-- Subagent 新增 `/subagent-model` 与 `Alt+M`，可从 Pi 当前可复用认证的模型目录中搜索并为内置 agent 保存本机覆盖；覆盖通过 `~/.pi/agent/subagent-models.json` 持久化，并同样应用于 `/git commit` 使用的 `General` profile。
+- Subagent 新增 `/subagent` 与 `Alt+M` 配置面板，可从 Pi 当前可复用认证的模型目录中搜索并暂存多个内置 agent 的配置，使用 `Ctrl+S` 批量保存到 `~/.pi/agent/subagent-models.json`；未显式配置的内置 agent 默认跟随当前主 Agent 模型，`/git commit` 使用的 `General` 也遵循相同规则。
 
 ### 架构/重构
 

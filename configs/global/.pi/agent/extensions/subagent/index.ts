@@ -30,10 +30,12 @@ import {
 	getSubagentModelConfigPath,
 	isEffectiveAgentConfig,
 	loadSubagentModelConfig,
+	modelReferenceFrom,
 	resolveAgentModels,
 	type EffectiveAgentConfig,
+	type ModelReference,
 } from "./model-overrides.js";
-import { registerSubagentModelPicker } from "./model-picker.js";
+import { registerSubagentConfiguration } from "./model-picker.js";
 import {
 	buildShortcutInvocationPrompt,
 	getHashShortcutCompletions,
@@ -55,7 +57,15 @@ function getAgentCapability(agent: AgentConfig): string {
 
 function formatAgentInventoryLine(agent: AgentConfig, includeModel = true): string {
 	const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(",") : "default/full";
-	const modelSource = isEffectiveAgentConfig(agent) && agent.modelSource === "override" ? " (override)" : "";
+	const modelSource = isEffectiveAgentConfig(agent)
+		? agent.modelSource === "override"
+			? " (configured)"
+			: agent.modelSource === "main-agent"
+				? " (main Agent default)"
+				: agent.modelSource === "profile"
+					? " (profile)"
+					: ""
+		: "";
 	const model = includeModel && agent.model ? `, model:${agent.model}${modelSource}` : "";
 	return `- ${agent.name}: ${getAgentCapability(agent)}, tools:${tools}${model}. ${agent.description}`;
 }
@@ -72,12 +82,12 @@ function buildSubagentSystemHint(agents: AgentConfig[]): string {
 	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
 }
 
-function discoverEffectiveAgents(cwd: string, scope: AgentScope) {
+function discoverEffectiveAgents(cwd: string, scope: AgentScope, mainModel?: ModelReference) {
 	const discovery = discoverAgents(cwd, scope);
 	const loaded = loadSubagentModelConfig(getSubagentModelConfigPath(getAgentDir()));
 	return {
 		...discovery,
-		agents: resolveAgentModels(discovery.agents, loaded.config),
+		agents: resolveAgentModels(discovery.agents, loaded.config, mainModel),
 		modelConfigError: loaded.error,
 	};
 }
@@ -94,7 +104,7 @@ function getRequestedAgentNames(params: {
 	return [...new Set(names.map((name) => name.trim().toLowerCase()))];
 }
 
-function findUnavailableModelOverrides(
+function findUnavailableAgentModels(
 	ctx: ExtensionContext,
 	agents: EffectiveAgentConfig[],
 	requestedNames: string[],
@@ -102,10 +112,19 @@ function findUnavailableModelOverrides(
 	const issues: string[] = [];
 	for (const requestedName of requestedNames) {
 		const agent = findAgentByName(agents, requestedName);
-		if (!agent || !isEffectiveAgentConfig(agent) || agent.modelSource !== "override" || !agent.modelOverride) continue;
-		const availability = getModelAvailability(ctx.modelRegistry, agent.modelOverride);
-		if (availability !== "available") {
-			issues.push(`${agent.name}: ${formatModelReference(agent.modelOverride)} is ${availability.replace("-", " ")}`);
+		if (!agent || !isEffectiveAgentConfig(agent)) continue;
+		if (agent.modelSource === "override" && agent.modelOverride) {
+			const availability = getModelAvailability(ctx.modelRegistry, agent.modelOverride);
+			if (availability !== "available") {
+				issues.push(`${agent.name}: configured model ${formatModelReference(agent.modelOverride)} is ${availability.replace("-", " ")}`);
+			}
+			continue;
+		}
+		if (agent.modelSource === "main-agent" && agent.mainModel) {
+			const availability = getModelAvailability(ctx.modelRegistry, agent.mainModel);
+			if (availability === "runtime-only") {
+				issues.push(`${agent.name}: main Agent model ${formatModelReference(agent.mainModel)} uses parent-only runtime credentials`);
+			}
 		}
 	}
 	return issues;
@@ -574,7 +593,7 @@ const SubagentParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
-	registerSubagentModelPicker(pi);
+	registerSubagentConfiguration(pi);
 
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
@@ -629,7 +648,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		const discovery = discoverEffectiveAgents(ctx.cwd, "project");
+		const discovery = discoverEffectiveAgents(ctx.cwd, "project", modelReferenceFrom(ctx.model));
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${buildSubagentSystemHint(discovery.agents)}`,
 		};
@@ -658,7 +677,7 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const agentScope: AgentScope = params.agentScope ?? "project";
-			const discovery = discoverEffectiveAgents(ctx.cwd, agentScope);
+			const discovery = discoverEffectiveAgents(ctx.cwd, agentScope, modelReferenceFrom(ctx.model));
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? false;
 
@@ -701,16 +720,16 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (discovery.modelConfigError && ctx.hasUI) {
-				ctx.ui.notify(`${discovery.modelConfigError} Falling back to agent profile models.`, "warning");
+				ctx.ui.notify(`${discovery.modelConfigError} Falling back to agent profile or main Agent models.`, "warning");
 			}
 
-			const modelIssues = findUnavailableModelOverrides(ctx, agents, getRequestedAgentNames(params));
+			const modelIssues = findUnavailableAgentModels(ctx, agents, getRequestedAgentNames(params));
 			if (modelIssues.length > 0) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Subagent model override is unavailable. Run /subagent-model to select another model or reset the override.\n${modelIssues.join("\n")}`,
+							text: `A subagent model cannot be reused by the child process. Run /subagent to configure another model or return to Default.\n${modelIssues.join("\n")}`,
 						},
 					],
 					details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),

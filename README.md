@@ -95,7 +95,7 @@ configs/global/.pi/agent/extensions/
 
 - `init/`：提供 `/init`，用基础说明和可选模板创建或更新目标项目的 `AGENTS.md`。
 - `plan/`：提供 `/plan` 计划模式，限制写工具并注入规划提示。
-- `subagent/`：提供子代理工具、`#AgentName` 快捷委派、`/subagent-model` / `Alt+M` 模型选择和内置 `General` / `Explore` / `Scout`。
+- `subagent/`：提供子代理工具、`#AgentName` 快捷委派、`/subagent` / `Alt+M` 配置面板和内置 `General` / `Explore` / `Scout`。
 - `git/`：提供 `/git` 分层入口，包括 commit、pull、branch 等 Git 工作流。
 - `blog/`：提供 `/blog` 文件化日志工作流，如 product、tech、release、work。
 

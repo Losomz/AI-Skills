@@ -15,7 +15,7 @@ const CORE_STANDARD_PLACEHOLDER = "{{CORE_STANDARD}}";
 const DEFAULT_CORE_STANDARD = "无额外要求，请根据实际改动决定提交范围并生成提交信息。";
 
 export interface CommitOperationDependencies {
-	discoverAgents: (cwd: string) => AgentConfig[];
+	discoverAgents: (cwd: string, ctx: ExtensionContext) => AgentConfig[];
 	findAgentByName: (agents: AgentConfig[], name: string) => AgentConfig | undefined;
 	runAgentProcess: (options: AgentProcessOptions) => Promise<AgentProcessResult>;
 	validateAgentProfile?: (profile: AgentConfig, ctx: ExtensionContext) => string | undefined;
@@ -218,7 +218,7 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 
 			let profile: AgentConfig | undefined;
 			try {
-				const agents = dependencies.discoverAgents(ctx.cwd);
+				const agents = dependencies.discoverAgents(ctx.cwd, ctx);
 				profile = dependencies.findAgentByName(agents, COMMIT_AGENT);
 			} catch (error) {
 				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${error instanceof Error ? error.message : String(error)}`, "error");
