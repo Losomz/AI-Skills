@@ -44,12 +44,13 @@ Use `/subagent` or `Alt+M` to open the bundled subagent configuration panel. The
 
 The TUI follows Pi's settings/model-configuration interaction:
 
-1. Select an agent and press Enter or Space to open its searchable model list.
-2. Selecting a model returns to the configuration panel and only stages the change.
-3. Press `Ctrl+S` to save all staged changes. The panel stays open after saving.
-4. Escape returns from the model list or closes the main panel; unsaved changes are discarded.
+1. Select an agent and press Enter or Space to open its Model and Thinking settings.
+2. Model opens the searchable reusable-model catalog; Thinking opens a capability-aware level list.
+3. Each selection returns to the agent settings and only stages the change.
+4. Press `Ctrl+S` to save all staged changes. The panel stays open after saving.
+5. Escape returns one level or closes the main panel; unsaved changes are discarded.
 
-Both levels show keybinding-aware operation hints in the footer, together with `(unsaved)`, `saving…`, `saved`, or an error message when applicable. RPC mode uses standard extension `select` requests followed by an explicit Save/Cancel step.
+All levels show keybinding-aware operation hints in the footer, together with `(unsaved)`, `saving…`, `saved`, or an error message when applicable. RPC mode uses standard extension `select` requests for agent, model, and thinking followed by an explicit Save/Cancel step.
 
 Models come from Pi's `ModelRegistry`; only models with non-runtime authentication are selectable. Parent-only credentials such as a one-off `--api-key` are excluded because they are not inherited by the child process. Dynamically registered providers must also be loaded by the child Pi startup environment.
 
@@ -61,14 +62,20 @@ Selections are stored locally in:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "overrides": {
-    "project:explore": { "provider": "aimaster", "id": "gpt-5.6-luna" }
+    "project:explore": {
+      "model": { "provider": "aimaster", "id": "gpt-5.6-luna" },
+      "thinkingLevel": "off"
+    },
+    "project:general": {
+      "thinkingLevel": "medium"
+    }
   }
 }
 ```
 
-The file contains only provider/model identifiers, never credentials. It is runtime user state and should not be copied from this repository over an existing local file. Model precedence is:
+The file contains only provider/model identifiers and thinking levels, never credentials. It is runtime user state and should not be copied from this repository over an existing local file. Version 1 model-only files are migrated in memory and written as version 2 on the next save. Model precedence is:
 
 ```text
 local subagent-models.json override
@@ -77,17 +84,28 @@ local subagent-models.json override
 > child Pi default model (only when the main Agent has no model)
 ```
 
-Choosing `Default` removes the local override. The bundled agents do not pin a profile model, so their default follows the main Agent model at the time a run starts. Switching the main Agent model affects future default subagent runs, while explicitly configured subagents remain pinned. Already running subagents keep their startup snapshot. The same resolved `General` profile is used by `/git commit`.
+Choosing Model `Default` removes only the local model override. The bundled agents do not pin a profile model, so their model default follows the main Agent model at the time a run starts. Switching the main Agent model affects future default subagent runs, while explicitly configured subagents remain pinned. Already running subagents keep their startup snapshot.
 
-The panel currently manages the bundled extension-local agents used by the default `project` scope. Overrides store only `provider/id`; they do not configure thinking level. If the override file is malformed, normal delegation falls back to profile or main Agent models and reports a warning, while the panel refuses to overwrite the damaged file until it is repaired or removed.
+Thinking precedence is:
+
+```text
+local subagent-models.json thinking override
+> agent Markdown frontmatter thinking-level
+> child Pi model/project/global default
+```
+
+Thinking `Default` removes the local thinking override. It falls back to agent frontmatter when present; otherwise the child process receives no `--thinking` argument and uses its own default. `Off` is distinct: it stores `"off"` and passes `--thinking off`. Concrete levels are filtered using the selected model's capabilities; changing to a model that cannot use a staged level resets that staged level to Default. A stale or manually edited incompatible level is rejected before launch instead of being silently clamped. The same fully resolved `General` profile, including thinking, is used by `/git commit`.
+
+The panel currently manages the bundled extension-local agents used by the default `project` scope. If the override file is malformed, normal delegation falls back to profile, main Agent, or child Pi defaults and reports a warning, while the panel refuses to overwrite the damaged file until it is repaired or removed.
 
 The model implementation is split by responsibility:
 
 ```text
 model-catalog.ts    # Pi ModelRegistry adapter and refresh coalescing
-model-overrides.ts  # versioned local config, locking, atomic batch writes, model resolution
-model-picker.ts     # /subagent settings panel, model submenu, shortcut, and RPC fallback
-agent-runner.ts     # isolated child process only
+model-overrides.ts  # versioned local config, migration, locking, atomic writes, effective profile resolution
+model-picker.ts     # /subagent agent/model/thinking settings and RPC fallback
+thinking.ts         # supported persisted thinking values and parser
+agent-runner.ts     # isolated child process and explicit override propagation
 ```
 
 ## Bundled Agents
@@ -109,12 +127,14 @@ description: What this agent is for
 tools: read, grep, find, ls
 # Optional. If omitted, the current main Agent model is used.
 # model: provider/model
+# Optional. Local /subagent settings can override it.
+# thinking-level: medium
 ---
 
 System prompt for the agent.
 ```
 
-If `model` is omitted and no local override is saved, the subagent uses the current main Agent model captured when the run starts.
+If `model` is omitted and no local override is saved, the subagent uses the current main Agent model captured when the run starts. The canonical thinking frontmatter field is `thinking-level`; `thinkingLevel` and `thinking` are accepted for compatibility.
 
 ## Default Agents
 
@@ -161,7 +181,7 @@ Subagents running (1):
 
 ## Shared Process Runner
 
-`agent-runner.ts` exports `runAgentProcess({ profile, task, cwd, signal, onUpdate })`. It applies the resolved profile's model, tools, and system prompt to an ephemeral Pi process using `--mode json -p --no-session`, then returns normalized lifecycle and output data. Model discovery and override persistence stay outside the runner so sibling extensions can reuse the same immutable resolved profile.
+`agent-runner.ts` exports `runAgentProcess({ profile, task, cwd, signal, onUpdate })`. It applies the resolved profile's model, optional explicit thinking level, tools, and system prompt to an ephemeral Pi process using `--mode json -p --no-session`, then returns normalized lifecycle and output data. When neither local configuration nor profile frontmatter resolves a level, `--thinking` is omitted; Off and concrete levels pass it explicitly. Model discovery and override persistence stay outside the runner so sibling extensions can reuse the same immutable resolved profile.
 
 The runner has no Pi extension, session, or UI dependency. The `subagent` tool and sibling extensions such as Git provide their own discovery, presentation, and result handling.
 

@@ -15,6 +15,7 @@ function agentConfig(name = "General"): AgentConfig {
 		name,
 		description: "test agent",
 		model: "openai-codex/gpt-5.3-codex-spark",
+		thinkingLevel: "low",
 		tools: ["read", "bash"],
 		systemPrompt: "General base prompt",
 		source: "project",
@@ -178,6 +179,7 @@ test("/git commit passes the complete General profile and returns before the bac
 	assert.ok(captured);
 	assert.equal(captured.profile.name, "General");
 	assert.equal(captured.profile.model, "openai-codex/gpt-5.3-codex-spark");
+	assert.equal(captured.profile.thinkingLevel, "low");
 	assert.deepEqual(captured.profile.tools, ["read", "bash"]);
 	assert.equal(captured.profile.systemPrompt, "General base prompt");
 	assert.equal(captured.cwd, ctx.cwd);

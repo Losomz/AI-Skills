@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentConfig } from "./agents.js";
+import type { AgentThinkingLevel } from "./thinking.js";
 
 export type AgentProcessStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
@@ -63,6 +64,7 @@ export interface PiProcessInvocation {
 
 export interface AgentProcessConfig {
 	model?: string;
+	thinkingLevel?: AgentThinkingLevel;
 	tools?: string[];
 }
 
@@ -73,6 +75,7 @@ export function buildAgentProcessArgs(
 ): string[] {
 	const args = ["--mode", "json", "-p", "--no-session"];
 	if (profile.model) args.push("--model", profile.model);
+	if (profile.thinkingLevel !== undefined) args.push("--thinking", profile.thinkingLevel);
 	if (profile.tools?.length) args.push("--tools", profile.tools.join(","));
 	if (systemPromptPath) args.push("--append-system-prompt", systemPromptPath);
 	args.push(`Task: ${task}`);

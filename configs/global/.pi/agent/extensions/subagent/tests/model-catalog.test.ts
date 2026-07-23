@@ -4,6 +4,8 @@ import {
 	createModelCatalogItems,
 	findAvailableModel,
 	getModelAvailability,
+	getSupportedAgentThinkingLevels,
+	getThinkingLevelCompatibility,
 	ModelCatalogService,
 	modelReferencesEqual,
 } from "../model-catalog.ts";
@@ -68,6 +70,20 @@ test("model availability and exact canonical lookup do not use fuzzy matching", 
 	assert.equal(findAvailableModel(registry, { provider: "runtime", id: "parent-only" }), undefined);
 	assert.equal(findAvailableModel(registry, { provider: "provider", id: "vendor" }), undefined);
 	assert.equal(modelReferencesEqual({ provider: "P", id: "M" }, { provider: "p", id: "m" }), true);
+});
+
+test("thinking choices follow the selected model capabilities", () => {
+	assert.deepEqual(getSupportedAgentThinkingLevels(undefined), ["off", "minimal", "low", "medium", "high"]);
+	assert.deepEqual(getSupportedAgentThinkingLevels({ ...model("provider", "plain"), reasoning: false }), ["off"]);
+	const mapped = {
+		...model("provider", "mapped"),
+		thinkingLevelMap: { off: null, low: null, xhigh: "xhigh", max: null },
+	};
+	assert.deepEqual(getSupportedAgentThinkingLevels(mapped), ["minimal", "medium", "high", "xhigh"]);
+	const registry = fakeRegistry({ all: [mapped] });
+	assert.equal(getThinkingLevelCompatibility(registry, { provider: "provider", id: "mapped" }, "off"), "unsupported");
+	assert.equal(getThinkingLevelCompatibility(registry, { provider: "provider", id: "mapped" }, "medium"), "supported");
+	assert.equal(getThinkingLevelCompatibility(registry, { provider: "provider", id: "missing" }, "high"), "unknown");
 });
 
 test("catalog refresh is single-flight and publishes the refreshed snapshot", async () => {

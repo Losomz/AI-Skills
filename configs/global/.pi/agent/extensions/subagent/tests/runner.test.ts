@@ -96,7 +96,7 @@ test("runAgentProcess inherits cwd, model, tools, system prompt, and ephemeral P
 	await usingCliScript(script, async () => {
 		const statuses: string[] = [];
 		const result = await runAgentProcess({
-			profile: profile(),
+			profile: profile({ thinkingLevel: "medium" }),
 			task: "run test task",
 			cwd: script.dir,
 			onUpdate: (update) => statuses.push(update.status),
@@ -115,6 +115,8 @@ test("runAgentProcess inherits cwd, model, tools, system prompt, and ephemeral P
 		assert.deepEqual(payload.args.slice(0, 4), ["--mode", "json", "-p", "--no-session"]);
 		assert.ok(payload.args.includes("--model"));
 		assert.ok(payload.args.includes("provider/general-model"));
+		assert.ok(payload.args.includes("--thinking"));
+		assert.ok(payload.args.includes("medium"));
 		assert.ok(payload.args.includes("--tools"));
 		assert.ok(payload.args.includes("read,bash"));
 		assert.ok(payload.args.includes("Task: run test task"));

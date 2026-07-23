@@ -6,7 +6,7 @@
 
 ### 功能变更
 
-- Subagent 新增 `/subagent` 与 `Alt+M` 配置面板，可从 Pi 当前可复用认证的模型目录中搜索并暂存多个内置 agent 的配置，使用 `Ctrl+S` 批量保存到 `~/.pi/agent/subagent-models.json`；未显式配置的内置 agent 默认跟随当前主 Agent 模型，`/git commit` 使用的 `General` 也遵循相同规则。
+- Subagent 的 `/subagent` 与 `Alt+M` 配置面板支持按 agent 分别暂存模型与 thinking；Thinking `Default` 保留子 Pi 的 profile/model/project/global 默认行为，`Off` 与具体级别显式传给子进程，`/git commit` 使用的 `General` 继承同一设置。
 
 ### 架构/重构
 
@@ -24,7 +24,7 @@
 
 ### 测试/质量
 
-- 增加 Subagent 模型目录、配置校验、原子写入、跨进程锁恢复、override 优先级、特殊模型 ID 和 Git profile 校验回归。
+- 增加 Subagent 模型目录、v1 到 v2 配置迁移、thinking 合法值与模型能力过滤、原子写入、跨进程锁恢复、override 优先级、特殊模型 ID 和 Git profile 继承回归。
 - 增加基于 Node `node:test` 的 Plan 回归覆盖，验证统一入口、pending 生命周期、上下文归一化、分支恢复、工具交集与主 Agent 写操作防护。
 - 增加 Git 后台任务与共享 runner 回归，覆盖立即返回、重复启动、General profile 继承、PID/耗时 UI、失败与 headless 输出、无 shell 启动及进程资源清理。
 
@@ -32,7 +32,7 @@
 
 - Plan 的命令 denylist 仅是主 Agent 的辅助防护而非安全沙箱；已激活的可写/full-access subagent 仍可能修改工作区，需要通过 subagent 自身能力配置或禁用该工具进行隔离。
 - Plan 扩展最低要求 Pi 0.80.4，以使用稳定的 `agent_settled` 生命周期事件。
-- `/git commit` 现在只接受可选的核心要求，不再解析 agent 参数；后台进程仍在真实 `ctx.cwd` 中提交和推送。同步全局扩展后需执行 `/reload`。
+- `/git commit` 现在只接受可选的核心要求，不再解析 agent 参数；后台进程仍在真实 `ctx.cwd` 中提交和推送。`subagent-models.json` v1 文件会兼容读取，并在下一次 `/subagent` 保存时升级为 v2。同步全局扩展后需执行 `/reload`。
 
 ## [v0.1.0] - 2026-06-30
 

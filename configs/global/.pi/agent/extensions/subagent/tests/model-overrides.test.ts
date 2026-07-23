@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { buildAgentProcessArgs } from "../agent-runner.ts";
 import type { AgentConfig } from "../agents.ts";
+import { getAgentThinkingLevelFromFrontmatter } from "../thinking.ts";
 import {
 	decodeSubagentModelConfig,
 	formatModelReference,
@@ -14,6 +15,7 @@ import {
 	parseCanonicalModelReference,
 	resolveAgentModel,
 	setAgentModelOverride,
+	setAgentModelOverrides,
 } from "../model-overrides.ts";
 
 function profile(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -34,25 +36,64 @@ function tempConfigPath(): { dir: string; file: string } {
 	return { dir, file: path.join(dir, "subagent-models.json") };
 }
 
-test("model override config validates and normalizes v1 data", () => {
+test("agent frontmatter accepts the canonical thinking-level field and compatibility aliases", () => {
+	assert.equal(getAgentThinkingLevelFromFrontmatter({ "thinking-level": "medium" }), "medium");
+	assert.equal(getAgentThinkingLevelFromFrontmatter({ thinkingLevel: "HIGH" }), "high");
+	assert.equal(getAgentThinkingLevelFromFrontmatter({ thinking: "off" }), "off");
+	assert.equal(getAgentThinkingLevelFromFrontmatter({ "thinking-level": "default" }), undefined);
+});
+
+test("config migrates v1 model overrides and validates normalized v2 data", () => {
 	assert.deepEqual(
 		decodeSubagentModelConfig({
 			version: 1,
 			overrides: { " PROJECT:EXPLORE ": { provider: " aimaster ", id: " gpt-5.6-luna " } },
 		}),
 		{
-			version: 1,
-			overrides: { "project:explore": { provider: "aimaster", id: "gpt-5.6-luna" } },
+			version: 2,
+			overrides: {
+				"project:explore": { model: { provider: "aimaster", id: "gpt-5.6-luna" } },
+			},
 		},
 	);
-	assert.throws(() => decodeSubagentModelConfig({ version: 2, overrides: {} }), /Unsupported/);
-	assert.throws(() => decodeSubagentModelConfig({ version: 1, overrides: { bad: { provider: "", id: "x" } } }), /provider/);
+	assert.deepEqual(
+		decodeSubagentModelConfig({
+			version: 2,
+			overrides: {
+				" PROJECT:GENERAL ": {
+					model: { provider: " aimaster ", id: " gpt-5.6-luna " },
+					thinkingLevel: " HIGH ",
+				},
+				"project:explore": { thinkingLevel: "off" },
+				"project:empty": {},
+			},
+		}),
+		{
+			version: 2,
+			overrides: {
+				"project:general": {
+					model: { provider: "aimaster", id: "gpt-5.6-luna" },
+					thinkingLevel: "high",
+				},
+				"project:explore": { thinkingLevel: "off" },
+			},
+		},
+	);
+	assert.throws(() => decodeSubagentModelConfig({ version: 3, overrides: {} }), /Unsupported/);
+	assert.throws(
+		() => decodeSubagentModelConfig({ version: 2, overrides: { bad: { model: { provider: "", id: "x" } } } }),
+		/provider/,
+	);
+	assert.throws(
+		() => decodeSubagentModelConfig({ version: 2, overrides: { bad: { thinkingLevel: "turbo" } } }),
+		/invalid thinking level/,
+	);
 });
 
 test("missing and malformed config files are distinguished without overwriting malformed data", async () => {
 	const temp = tempConfigPath();
 	try {
-		assert.deepEqual(loadSubagentModelConfig(temp.file).config, { version: 1, overrides: {} });
+		assert.deepEqual(loadSubagentModelConfig(temp.file).config, { version: 2, overrides: {} });
 		fs.writeFileSync(temp.file, "{broken", "utf8");
 		const malformed = loadSubagentModelConfig(temp.file);
 		assert.match(malformed.error ?? "", /Invalid subagent model configuration/);
@@ -63,14 +104,21 @@ test("missing and malformed config files are distinguished without overwriting m
 	}
 });
 
-test("setting and resetting an override atomically changes the effective profile", async () => {
+test("model and thinking overrides resolve independently and Default removes only the selected field", async () => {
 	const temp = tempConfigPath();
 	try {
-		const agent = profile();
-		const saved = await setAgentModelOverride(agent, { provider: "openrouter", id: "vendor/model:exacto" }, temp.file);
+		const agent = profile({ thinkingLevel: "low" });
+		const saved = await setAgentModelOverrides(
+			[{
+				agent,
+				model: { provider: "openrouter", id: "vendor/model:exacto" },
+				thinkingLevel: "high",
+			}],
+			temp.file,
+		);
 		assert.deepEqual(saved.overrides[getAgentModelKey(agent)], {
-			provider: "openrouter",
-			id: "vendor/model:exacto",
+			model: { provider: "openrouter", id: "vendor/model:exacto" },
+			thinkingLevel: "high",
 		});
 
 		const effective = resolveAgentModel(agent, saved);
@@ -78,32 +126,49 @@ test("setting and resetting an override atomically changes the effective profile
 		assert.equal(effective.modelSource, "override");
 		assert.equal(effective.profileModel, "profile/default:high");
 		assert.equal(formatModelReference(effective.modelOverride!), "openrouter/vendor/model:exacto");
-		assert.deepEqual(buildAgentProcessArgs(effective, "inspect").slice(0, 6), [
+		assert.equal(effective.thinkingLevel, "high");
+		assert.equal(effective.thinkingSource, "override");
+		assert.equal(effective.profileThinkingLevel, "low");
+		assert.deepEqual(buildAgentProcessArgs(effective, "inspect").slice(0, 8), [
 			"--mode",
 			"json",
 			"-p",
 			"--no-session",
 			"--model",
 			"openrouter/vendor/model:exacto",
+			"--thinking",
+			"high",
 		]);
 
-		const reset = await setAgentModelOverride(agent, undefined, temp.file);
-		const restored = resolveAgentModel(agent, reset);
-		assert.equal(restored.model, "profile/default:high");
-		assert.equal(restored.modelSource, "profile");
+		const modelReset = await setAgentModelOverride(agent, undefined, temp.file);
+		assert.deepEqual(modelReset.overrides[getAgentModelKey(agent)], { thinkingLevel: "high" });
+		const restoredModel = resolveAgentModel(agent, modelReset);
+		assert.equal(restoredModel.model, "profile/default:high");
+		assert.equal(restoredModel.modelSource, "profile");
+		assert.equal(restoredModel.thinkingLevel, "high");
+
+		const thinkingReset = await setAgentModelOverrides([{ agent, thinkingLevel: undefined }], temp.file);
+		assert.equal(thinkingReset.overrides[getAgentModelKey(agent)], undefined);
+		const restoredProfile = resolveAgentModel(agent, thinkingReset);
+		assert.equal(restoredProfile.thinkingLevel, "low");
+		assert.equal(restoredProfile.thinkingSource, "profile");
 		assert.deepEqual(fs.readdirSync(temp.dir), ["subagent-models.json"]);
 	} finally {
 		fs.rmSync(temp.dir, { recursive: true, force: true });
 	}
 });
 
-test("writes reject invalid references and recover an abandoned cross-process lock", async () => {
+test("writes reject invalid fields and recover an abandoned cross-process lock", async () => {
 	const temp = tempConfigPath();
 	try {
 		const agent = profile();
 		await assert.rejects(
 			() => setAgentModelOverride(agent, { provider: " ", id: "model" }, temp.file),
 			/invalid provider/,
+		);
+		await assert.rejects(
+			() => setAgentModelOverrides([{ agent, thinkingLevel: "turbo" as never }], temp.file),
+			/invalid thinking level/,
 		);
 		assert.equal(fs.existsSync(`${temp.file}.lock`), false);
 
@@ -113,8 +178,7 @@ test("writes reject invalid references and recover an abandoned cross-process lo
 		await setAgentModelOverride(agent, { provider: "provider", id: "model" }, temp.file);
 		assert.equal(fs.existsSync(`${temp.file}.lock`), false);
 		assert.deepEqual(loadSubagentModelConfig(temp.file).config.overrides[getAgentModelKey(agent)], {
-			provider: "provider",
-			id: "model",
+			model: { provider: "provider", id: "model" },
 		});
 	} finally {
 		fs.rmSync(temp.dir, { recursive: true, force: true });
@@ -158,8 +222,7 @@ test("cross-process updates merge under the file lock instead of losing agent en
 		assert.equal(Object.keys(loaded.config.overrides).length, 6);
 		for (let index = 0; index < 6; index++) {
 			assert.deepEqual(loaded.config.overrides[`project:agent${index}`], {
-				provider: "provider",
-				id: `model-${index}`,
+				model: { provider: "provider", id: `model-${index}` },
 			});
 		}
 	} finally {
@@ -167,11 +230,14 @@ test("cross-process updates merge under the file lock instead of losing agent en
 	}
 });
 
-test("canonical references split only the provider slash and preserve model punctuation", () => {
+test("canonical references preserve punctuation and unresolved thinking remains child Pi Default", () => {
 	assert.deepEqual(parseCanonicalModelReference("openrouter/vendor/model:exacto"), {
 		provider: "openrouter",
 		id: "vendor/model:exacto",
 	});
 	assert.equal(parseCanonicalModelReference("missing-provider"), undefined);
-	assert.equal(resolveAgentModel(profile({ model: undefined }), { version: 1, overrides: {} }).modelSource, "pi-default");
+	const effective = resolveAgentModel(profile({ model: undefined }), { version: 2, overrides: {} });
+	assert.equal(effective.modelSource, "pi-default");
+	assert.equal(effective.thinkingLevel, undefined);
+	assert.equal(effective.thinkingSource, "pi-default");
 });

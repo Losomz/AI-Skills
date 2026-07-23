@@ -24,13 +24,14 @@ import {
 	runAgentProcess,
 	type AgentProcessStatus,
 } from "./agent-runner.js";
-import { getModelAvailability } from "./model-catalog.js";
+import { getModelAvailability, getThinkingLevelCompatibility } from "./model-catalog.js";
 import {
 	formatModelReference,
 	getSubagentModelConfigPath,
 	isEffectiveAgentConfig,
 	loadSubagentModelConfig,
 	modelReferenceFrom,
+	parseCanonicalModelReference,
 	resolveAgentModels,
 	type EffectiveAgentConfig,
 	type ModelReference,
@@ -67,7 +68,14 @@ function formatAgentInventoryLine(agent: AgentConfig, includeModel = true): stri
 					: ""
 		: "";
 	const model = includeModel && agent.model ? `, model:${agent.model}${modelSource}` : "";
-	return `- ${agent.name}: ${getAgentCapability(agent)}, tools:${tools}${model}. ${agent.description}`;
+	const thinking = isEffectiveAgentConfig(agent)
+		? agent.thinkingLevel
+			? `, thinking:${agent.thinkingLevel}${agent.thinkingSource === "override" ? " (configured)" : agent.thinkingSource === "profile" ? " (profile)" : ""}`
+			: ", thinking:default"
+		: agent.thinkingLevel
+			? `, thinking:${agent.thinkingLevel} (profile)`
+			: ", thinking:default";
+	return `- ${agent.name}: ${getAgentCapability(agent)}, tools:${tools}${model}${thinking}. ${agent.description}`;
 }
 
 function formatAgentInventory(agents: AgentConfig[], includeModel = true): string {
@@ -113,18 +121,30 @@ function findUnavailableAgentModels(
 	for (const requestedName of requestedNames) {
 		const agent = findAgentByName(agents, requestedName);
 		if (!agent || !isEffectiveAgentConfig(agent)) continue;
+		let modelReference: ModelReference | undefined;
 		if (agent.modelSource === "override" && agent.modelOverride) {
+			modelReference = agent.modelOverride;
 			const availability = getModelAvailability(ctx.modelRegistry, agent.modelOverride);
 			if (availability !== "available") {
 				issues.push(`${agent.name}: configured model ${formatModelReference(agent.modelOverride)} is ${availability.replace("-", " ")}`);
 			}
-			continue;
-		}
-		if (agent.modelSource === "main-agent" && agent.mainModel) {
+		} else if (agent.modelSource === "main-agent" && agent.mainModel) {
+			modelReference = agent.mainModel;
 			const availability = getModelAvailability(ctx.modelRegistry, agent.mainModel);
 			if (availability === "runtime-only") {
 				issues.push(`${agent.name}: main Agent model ${formatModelReference(agent.mainModel)} uses parent-only runtime credentials`);
 			}
+		} else if (agent.model) {
+			modelReference = parseCanonicalModelReference(agent.model);
+		}
+		if (
+			agent.thinkingLevel
+			&& modelReference
+			&& getThinkingLevelCompatibility(ctx.modelRegistry, modelReference, agent.thinkingLevel) === "unsupported"
+		) {
+			issues.push(
+				`${agent.name}: ${agent.thinkingSource} thinking level ${agent.thinkingLevel} is unsupported by ${formatModelReference(modelReference)}`,
+			);
 		}
 	}
 	return issues;
@@ -711,7 +731,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (hasList) {
 				const configWarning = discovery.modelConfigError
-					? `\n\nModel override warning: ${discovery.modelConfigError}`
+					? `\n\nSubagent configuration warning: ${discovery.modelConfigError}`
 					: "";
 				return {
 					content: [{ type: "text", text: `${formatAgentInventory(agents)}${configWarning}` }],
@@ -720,7 +740,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (discovery.modelConfigError && ctx.hasUI) {
-				ctx.ui.notify(`${discovery.modelConfigError} Falling back to agent profile or main Agent models.`, "warning");
+				ctx.ui.notify(`${discovery.modelConfigError} Falling back to agent profile, main Agent, or child Pi defaults.`, "warning");
 			}
 
 			const modelIssues = findUnavailableAgentModels(ctx, agents, getRequestedAgentNames(params));
@@ -729,7 +749,7 @@ export default function (pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: `A subagent model cannot be reused by the child process. Run /subagent to configure another model or return to Default.\n${modelIssues.join("\n")}`,
+							text: `A subagent model or thinking setting cannot be used by the child process. Run /subagent to choose compatible settings or return to Default.\n${modelIssues.join("\n")}`,
 						},
 					],
 					details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),

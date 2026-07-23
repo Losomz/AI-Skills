@@ -2,8 +2,12 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { ModelReference } from "./model-overrides.ts";
 import { formatModelReference } from "./model-overrides.ts";
+import { AGENT_THINKING_LEVELS, type AgentThinkingLevel } from "./thinking.ts";
 
 export type ModelAvailability = "available" | "runtime-only" | "known-unavailable" | "unknown";
+export type ThinkingLevelCompatibility = "supported" | "unsupported" | "unknown";
+
+const DEFAULT_THINKING_LEVELS: AgentThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 
 export interface ModelCatalogItem extends ModelReference {
 	canonical: string;
@@ -24,6 +28,28 @@ function normalizedModelKey(model: ModelReference): string {
 
 export function modelReferencesEqual(left: ModelReference, right: ModelReference): boolean {
 	return normalizedModelKey(left) === normalizedModelKey(right);
+}
+
+export function getSupportedAgentThinkingLevels(model?: Model<Api>): AgentThinkingLevel[] {
+	if (!model) return [...DEFAULT_THINKING_LEVELS];
+	if (!model.reasoning) return ["off"];
+	return AGENT_THINKING_LEVELS.filter((level) => {
+		const mapped = model.thinkingLevelMap?.[level];
+		if (mapped === null) return false;
+		if (level === "xhigh" || level === "max") return mapped !== undefined;
+		return true;
+	});
+}
+
+export function getThinkingLevelCompatibility(
+	registry: Pick<ModelRegistry, "getAll">,
+	reference: ModelReference,
+	thinkingLevel: AgentThinkingLevel,
+): ThinkingLevelCompatibility {
+	const key = normalizedModelKey(reference);
+	const model = registry.getAll().find((candidate) => normalizedModelKey(candidate) === key);
+	if (!model) return "unknown";
+	return getSupportedAgentThinkingLevels(model).includes(thinkingLevel) ? "supported" : "unsupported";
 }
 
 export function createModelCatalogItems(

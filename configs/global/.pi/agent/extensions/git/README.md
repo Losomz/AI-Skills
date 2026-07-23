@@ -48,7 +48,7 @@ git/
 
 ### commit
 
-`/git commit` resolves the bundled `General` profile and passes its model, tools, and base system prompt to the shared process runner. A model saved through `/subagent` overrides the default here as well; without an override, `General` follows the current main Agent model. Git-specific rules come from `prompts/commit.md`. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends.
+`/git commit` resolves the bundled `General` profile and passes its model, optional explicit thinking level, tools, and base system prompt to the shared process runner. Model and thinking settings saved through `/subagent` apply here as well. Without a model override, `General` follows the current main Agent model. Thinking `Default` falls back to General frontmatter when present, or otherwise leaves the child Pi default untouched; Off and concrete levels are passed explicitly after model-capability validation. Git-specific rules come from `prompts/commit.md`. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends.
 
 The process runs with `--mode json -p --no-session` in the current `ctx.cwd`. It performs the workflow with **sub-repo first** ordering:
 

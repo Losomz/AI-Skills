@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { getAgentThinkingLevelFromFrontmatter, type AgentThinkingLevel } from "./thinking.ts";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -14,6 +15,7 @@ export interface AgentConfig {
 	description: string;
 	tools?: string[];
 	model?: string;
+	thinkingLevel?: AgentThinkingLevel;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -49,25 +51,29 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
+		const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(content);
 
-		const name = frontmatter.name || path.basename(entry.name, ".md");
-		if (!name || !frontmatter.description) {
+		const configuredName = typeof frontmatter.name === "string" ? frontmatter.name : undefined;
+		const description = typeof frontmatter.description === "string" ? frontmatter.description : undefined;
+		const name = configuredName || path.basename(entry.name, ".md");
+		if (!name || !description) {
 			continue;
 		}
 
-		const tools = frontmatter.tools
-			?.split(",")
-			.map((t: string) => t.trim())
-			.filter(Boolean);
-
-		const normalizedTools = tools && tools.length > 0 ? tools : undefined;
+		const tools = typeof frontmatter.tools === "string"
+			? frontmatter.tools
+					.split(",")
+					.map((tool) => tool.trim())
+					.filter(Boolean)
+			: undefined;
+		const model = typeof frontmatter.model === "string" ? frontmatter.model.trim() || undefined : undefined;
 
 		agents.push({
 			name,
-			description: frontmatter.description,
-			tools: normalizedTools,
-			model: frontmatter.model,
+			description,
+			tools: tools && tools.length > 0 ? tools : undefined,
+			model,
+			thinkingLevel: getAgentThinkingLevelFromFrontmatter(frontmatter),
 			systemPrompt: body,
 			source,
 			filePath,

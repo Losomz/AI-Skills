@@ -47,7 +47,7 @@ configs/global/.pi/agent/themes/     -> ~/.pi/agent/themes/
 
 - `~/.pi/agent/auth.json`
 - `~/.pi/agent/sessions/`
-- `~/.pi/agent/subagent-models.json`：`/subagent` 配置面板生成的本机 per-agent 模型覆盖
+- `~/.pi/agent/subagent-models.json`：`/subagent` 配置面板生成的本机 per-agent 模型与 thinking 覆盖
 - `~/.pi/agent/pi-debug.log`
 - `~/.pi/agent/npm/`
 - `~/.pi/agent/git/`
