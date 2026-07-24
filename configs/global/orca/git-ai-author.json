@@ -1,0 +1,63 @@
+{
+  "sourceControlAi": {
+    "enabled": true,
+    "actions": {
+      "commitMessage": {
+        "commandInputTemplate": "{basePrompt}\n   以下规则覆盖上方提示词中任何与输出格式冲突的要求：\n   - 只输出最终 Git 提交信息，并且必须只有一行。\n   - 不得输出分析、思考、推理、解释、标签、前言、引号、Markdown、代码块、候选项或正文。\n   - 格式必须为：<gitmoji> <type>(<scope>): <中文描述>",
+        "agentArgs": "--model aimaster/gpt-5.6-luna --thinking off"
+      },
+      "pullRequest": {
+        "commandInputTemplate": "{basePrompt}"
+      },
+      "branchName": {
+        "commandInputTemplate": "{basePrompt}"
+      },
+      "fixCommitFailure": {
+        "commandInputTemplate": "{basePrompt}"
+      },
+      "fixPushFailure": {
+        "commandInputTemplate": "{basePrompt}"
+      },
+      "fixChecks": {
+        "commandInputTemplate": "{basePrompt}"
+      },
+      "resolveConflicts": {
+        "commandInputTemplate": "{basePrompt}"
+      },
+      "resolveComments": {
+        "commandInputTemplate": "{basePrompt}"
+      }
+    },
+    "agentId": null,
+    "selectedModelByAgent": {},
+    "selectedModelByAgentByHost": {},
+    "discoveredModelsByAgent": {},
+    "discoveredModelsByAgentByHost": {},
+    "selectedThinkingByModel": {},
+    "customAgentCommand": "",
+    "instructionsByOperation": {
+      "commitMessage": "",
+      "pullRequest": "",
+      "branchName": ""
+    },
+    "prCreationDefaults": {
+      "draft": false,
+      "useTemplate": false,
+      "generateDetailsOnOpen": false,
+      "openAfterCreate": false
+    },
+    "launchActionDefaults": {},
+    "modelOverridesByOperation": {}
+  },
+  "commitMessageAi": {
+    "enabled": true,
+    "agentId": null,
+    "selectedModelByAgent": {},
+    "selectedModelByAgentByHost": {},
+    "discoveredModelsByAgent": {},
+    "discoveredModelsByAgentByHost": {},
+    "selectedThinkingByModel": {},
+    "customPrompt": "以下规则覆盖上方提示词中任何与输出格式冲突的要求：\n   - 只输出最终 Git 提交信息，并且必须只有一行。\n   - 不得输出分析、思考、推理、解释、标签、前言、引号、Markdown、代码块、候选项或正文。\n   - 格式必须为：<gitmoji> <type>(<scope>): <中文描述>",
+    "customAgentCommand": ""
+  }
+}
