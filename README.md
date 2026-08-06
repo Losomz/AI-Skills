@@ -1,8 +1,8 @@
-# AgentFramework
+# PiCraft
 
-个人 AI Agent 配置与模板仓库。
+个人 AI Agent 工作流、配置与模板仓库。
 
-本仓库用于沉淀可复用的全局 / 项目级 Agent 配置、Pi 扩展、初始化模板、OpenCode skills、Codex Skills、Codex 配置和相关说明文档。
+PiCraft 为 Pi 提供 Plan、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `@losomz/picraft`。
 
 ## 当前目录结构
 
@@ -32,6 +32,7 @@ AgentFramework/
 ├── docs/
 │   ├── TECH_CHANGELOG.md
 │   └── pi-global-config.md
+├── package.json                    # PiCraft Git package manifest
 └── README.md
 ```
 
@@ -41,19 +42,80 @@ AgentFramework/
 
 ### Pi
 
-Pi 官方全局配置目录：
+PiCraft 的 Pi 资源由仓库根目录 `package.json` 显式声明，推荐通过 Git package 安装，不需要手工 clone 或复制扩展：
 
-```text
-~/.pi/agent/
+```bash
+pi install git:github.com/Losomz/AgentFramework
+pi list
 ```
 
-本仓库对应源路径：
+安装后重启 Pi。Pi 会把仓库 clone 到自己的全局 package 管理目录，并从中加载 Plan、Subagent、Git、Init 和 Blog：
+
+```text
+~/.pi/agent/git/github.com/Losomz/AgentFramework/
+```
+
+后续更新全部 package：
+
+```bash
+pi update --extensions
+```
+
+只更新 PiCraft：
+
+```bash
+pi update git:github.com/Losomz/AgentFramework
+```
+
+更新后重启 Pi，或者在 Pi 中执行：
+
+```text
+/reload
+```
+
+卸载命令：
+
+```bash
+pi remove git:github.com/Losomz/AgentFramework
+```
+
+#### 从手工扩展迁移
+
+如果电脑上已经存在以下手工副本，安装 package 后它们不会被自动覆盖或删除：
+
+```text
+~/.pi/agent/extensions/plan/
+~/.pi/agent/extensions/subagent/
+~/.pi/agent/extensions/git/
+~/.pi/agent/extensions/init/
+~/.pi/agent/extensions/blog/
+```
+
+本地副本与 package 副本同时加载会产生重复命令、快捷键和事件处理器。首次迁移时运行 `pi config`，禁用上述本地入口并保留 package 入口；确认 package 正常后再备份或移除这五个目录。不要删除整个 `~/.pi/agent/extensions/`，Orca 等其他扩展仍可能位于其中。
+
+Package 只管理 manifest 声明的 extensions、skills、prompts 和 themes。以下机器配置不会随 package 分发：
+
+- `auth.json`、`settings.json`、`models.json` 和 `keybindings.json`
+- `sessions/` 和 `subagent-models.json`
+- Orca 扩展、OpenCode/Codex 配置和外部 CLI
+
+每台新电脑仍需独立完成 Pi 登录、模型和外部工具配置。
+
+#### 本地开发
+
+本仓库中的 Pi package 资源源路径为：
 
 ```text
 configs/global/.pi/agent/
 ```
 
-常见映射：
+在仓库根目录可临时只加载当前工作区版本，不修改已安装 package：
+
+```bash
+pi --no-extensions --no-skills --no-prompt-templates --no-themes -e .
+```
+
+手工映射仅作为开发或迁移备用，不能与 package 版本同时启用：
 
 ```text
 configs/global/.pi/agent/extensions/ -> ~/.pi/agent/extensions/
@@ -62,13 +124,7 @@ configs/global/.pi/agent/skills/     -> ~/.pi/agent/skills/
 configs/global/.pi/agent/themes/     -> ~/.pi/agent/themes/
 ```
 
-同步 Pi 全局配置后，在 Pi 中执行：
-
-```text
-/reload
-```
-
-不要全量删除或覆盖整个 `~/.pi/agent/`，避免误删 `auth.json`、`sessions/` 等运行时数据。详见 `docs/pi-global-config.md`。
+详见 `docs/pi-global-config.md`。
 
 ### Codex
 
@@ -101,7 +157,7 @@ configs/global/.pi/agent/extensions/
 
 每个扩展目录下的 `README.md` 记录该扩展的具体命令、结构和维护方式。
 
-`/blog` 仅维护上述全局源；项目模板不再保留项目级副本。同步全局配置后执行 `/reload` 即可使用最新流程。
+`/blog` 仅维护上述全局源；项目模板不再保留项目级副本。更新 PiCraft package 并执行 `/reload` 后即可使用最新流程。
 
 ## `/init` 模板
 
@@ -193,7 +249,8 @@ configs/global/.pi/agent/extensions/init/templates/
 ## 维护注意事项
 
 - 不要把运行时数据、登录凭据、会话记录、缓存目录提交进模板源。
-- Pi 全局配置同步时只覆盖被管理的文件或子目录，不要整体替换 `~/.pi/agent/`。
+- Pi extensions、skills、prompts 和 themes 优先通过 PiCraft package 管理；手工同步时只覆盖明确管理的文件或子目录，不要整体替换 `~/.pi/agent/`。
+- 不要同时启用 package 版本与 `~/.pi/agent/extensions/` 中的同名手工扩展。
 - `/init` 模板只提供可复用检查项，目标项目的命令、路径、框架事实必须重新核验。
 - OpenCode skills、Pi extensions、Codex agents / skills 分别维护在各自配置目录，避免混放。
 - 历史变更记录见 `docs/TECH_CHANGELOG.md`。

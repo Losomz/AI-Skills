@@ -1,0 +1,63 @@
+{
+  "name": "@losomz/picraft",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An opinionated Pi workflow suite for planning, subagents, Git automation, project initialization, and publishing.",
+  "license": "UNLICENSED",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "coding-agent",
+    "agent-workflow"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Losomz/AgentFramework.git"
+  },
+  "scripts": {
+    "test": "node --test configs/global/.pi/agent/extensions/plan/tests/plan.test.ts configs/global/.pi/agent/extensions/git/tests/commit.test.ts configs/global/.pi/agent/extensions/subagent/tests/model-catalog.test.ts configs/global/.pi/agent/extensions/subagent/tests/model-overrides.test.ts configs/global/.pi/agent/extensions/subagent/tests/process-args.test.ts configs/global/.pi/agent/extensions/subagent/tests/runner.test.ts configs/global/.pi/agent/extensions/subagent/tests/shortcut.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./configs/global/.pi/agent/extensions/plan/index.ts",
+      "./configs/global/.pi/agent/extensions/subagent/index.ts",
+      "./configs/global/.pi/agent/extensions/git/index.ts",
+      "./configs/global/.pi/agent/extensions/init/index.ts",
+      "./configs/global/.pi/agent/extensions/blog/index.ts"
+    ],
+    "skills": [
+      "./configs/global/.pi/agent/skills"
+    ],
+    "prompts": [
+      "./configs/global/.pi/agent/prompts"
+    ],
+    "themes": [
+      "./configs/global/.pi/agent/themes"
+    ]
+  }
+}

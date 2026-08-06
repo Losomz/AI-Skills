@@ -9,9 +9,75 @@ Pi 官方把配置分为全局配置和项目级配置：
 
 项目级配置会覆盖全局配置；`settings.json` 里的嵌套对象会合并。
 
-## 本仓库路径约定
+## PiCraft Git Package
 
-当前仓库把配置源分为两类：
+PiCraft 的 Pi 资源由仓库根目录 `package.json` 显式声明。日常安装和更新优先使用 Pi 的 Git package 管理，不再把扩展手工复制到全局目录：
+
+```bash
+pi install git:github.com/Losomz/AgentFramework
+pi list
+```
+
+默认是用户级安装，Pi 会把 clone 管理在：
+
+```text
+~/.pi/agent/git/github.com/Losomz/AgentFramework/
+```
+
+更新全部 package 或只更新 PiCraft：
+
+```bash
+pi update --extensions
+pi update git:github.com/Losomz/AgentFramework
+```
+
+更新后重启 Pi，或者执行 `/reload`。卸载使用：
+
+```bash
+pi remove git:github.com/Losomz/AgentFramework
+```
+
+未指定 Git tag、commit 或 branch 时，Pi 会跟踪远程默认分支。启动时发现本地 clone `HEAD` 落后于远程默认分支后会提示更新，但不会静默应用。
+
+Package 当前加载：
+
+```text
+configs/global/.pi/agent/extensions/plan/index.ts
+configs/global/.pi/agent/extensions/subagent/index.ts
+configs/global/.pi/agent/extensions/git/index.ts
+configs/global/.pi/agent/extensions/init/index.ts
+configs/global/.pi/agent/extensions/blog/index.ts
+configs/global/.pi/agent/skills/
+configs/global/.pi/agent/prompts/
+configs/global/.pi/agent/themes/
+```
+
+`auth.json`、`settings.json`、`models.json`、`keybindings.json`、`sessions/`、`subagent-models.json`、Orca 扩展和外部 CLI 不属于 package，每台机器独立管理。
+
+### 从手工副本迁移
+
+Pi package 的管理目录与 `~/.pi/agent/extensions/` 相互独立。安装 package 不会覆盖已经手工复制的同名扩展；两者同时启用会产生重复命令、快捷键和事件处理器。
+
+首次迁移步骤：
+
+1. 执行 `pi install git:github.com/Losomz/AgentFramework`。
+2. 执行 `pi config`，禁用 `~/.pi/agent/extensions/` 中的 Plan、Subagent、Git、Init 和 Blog 入口，保留 package 入口。
+3. 重启 Pi，确认 `/plan`、`/subagent`、`/git`、`/init` 和 `/blog` 各只有一个入口。
+4. 确认功能正常后，备份或移除上述五个本地扩展目录。
+
+不要删除整个 `~/.pi/agent/extensions/`，以免影响 Orca 或其他本地扩展。后续同步流程也不能再次复制这五个目录，否则重复扩展会重新出现。
+
+### 本地开发验证
+
+在仓库根目录运行：
+
+```bash
+pi --no-extensions --no-skills --no-prompt-templates --no-themes -e .
+```
+
+`--no-*` 参数会忽略 settings 和自动发现的同类资源，`-e .` 仍会显式加载当前仓库 package，适合在不干扰已安装版本的情况下验证修改。
+
+## 本仓库路径约定
 
 ```text
 configs/global/   # 全局配置源
@@ -20,7 +86,7 @@ configs/project/  # 项目级配置源
 
 旧文档或旧脚本里出现的 `configs/.pi/`、`configs/.opencode/` 是历史路径；当前主线应使用 `configs/global/` 和 `configs/project/`。
 
-## 全局配置
+## 全局配置手工同步（备用）
 
 本仓库中 Pi 全局配置源目录是：
 
@@ -32,7 +98,7 @@ configs/global/.pi/agent/
 └── themes/
 ```
 
-同步到本机全局 Pi 配置时，应按被管理的文件或子目录逐项同步，不要全量删除或覆盖整个 `~/.pi/agent/`。对应关系是：
+仅在本地开发、迁移或应急回退时按被管理的文件或子目录逐项同步。手工同步版本不能与 PiCraft package 同时启用，也不要全量删除或覆盖整个 `~/.pi/agent/`。对应关系是：
 
 ```text
 configs/global/.pi/agent/extensions/ -> ~/.pi/agent/extensions/
