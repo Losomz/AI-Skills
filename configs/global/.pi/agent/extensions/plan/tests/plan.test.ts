@@ -4,7 +4,7 @@ import { extname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { normalizePlanContext, PLAN_CONTEXT_TYPE, type PlanDirective } from "../context.ts";
+import { loadPlanPrompts, normalizePlanContext, PLAN_CONTEXT_TYPE, type PlanDirective } from "../context.ts";
 import { registerPlanExtension } from "../index.ts";
 import { decodePlanState, findLatestPlanState, PLAN_STATE_TYPE } from "../state.ts";
 import { findToolViolation, restoreAvailableTools, selectPlanTools } from "../utils.ts";
@@ -167,6 +167,15 @@ test("context normalization removes stale controls but preserves ordinary Plan q
 	assert.equal(normalizePlanContext(normalized, directive).length, 3);
 });
 
+test("bundled Plan prompt identifies Bash null-device syntax on Windows", () => {
+	const extensionDir = fileURLToPath(new URL("../", import.meta.url));
+	const { prompts, diagnostics } = loadPlanPrompts(extensionDir);
+	assert.deepEqual(diagnostics, []);
+	assert.match(prompts.plan, /always executes Bash, including on Windows/);
+	assert.match(prompts.plan, /use `\/dev\/null` as the null device/);
+	assert.match(prompts.plan, /Never use `nul`, `NUL`, `nul:`, or `\$null`/);
+});
+
 test("tool helpers keep only registered active candidates and use a bounded write guard", () => {
 	assert.deepEqual(
 		selectPlanTools(["read", "write", "bash", "subagent"], ["read", "write", "subagent"]),
@@ -175,10 +184,26 @@ test("tool helpers keep only registered active candidates and use a bounded writ
 	assert.deepEqual(restoreAvailableTools(["write", "read", "retired", "read"], ["read", "write"]), ["write", "read"]);
 	assert.match(findToolViolation("edit", {}) ?? "", /disabled/);
 	assert.match(findToolViolation("bash", {}) ?? "", /non-empty/);
-	for (const command of ["rm -rf build", "git -C . add file.ts", "Set-Content output.txt value", "printf x > output.txt"]) {
+	for (const command of [
+		"rm -rf build",
+		"git -C . add file.ts",
+		"Set-Content output.txt value",
+		"printf x > output.txt",
+		"where.exe tool 2>NUL",
+		"where.exe tool 2>nul:",
+		"printf x > $null",
+	]) {
 		assert.ok(findToolViolation("bash", { command }), command);
 	}
-	for (const command of ['rg "rm" .', "git status --short", "git tag --list", "Get-Content README.md", "rg TODO . 2>&1"]) {
+	for (const command of [
+		'rg "rm" .',
+		"git status --short",
+		"git tag --list",
+		"Get-Content README.md",
+		"rg TODO . 2>&1",
+		"rg TODO . 2>/dev/null",
+		'cmd.exe /c "where.exe tool 2>NUL"',
+	]) {
 		assert.equal(findToolViolation("bash", { command }), undefined, command);
 	}
 });

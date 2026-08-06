@@ -16,6 +16,7 @@
 
 ### 问题修复
 
+- 修正 Plan 模式在 Windows 宿主环境中错误放行 `NUL`、`nul:` 与 `$null` 重定向的问题；Plan 提示现在明确 Pi 的 `bash` 工具始终执行 Bash，并要求使用 `/dev/null` 作为空设备。
 - 补回 Subagent 已拆分但未纳入仓库的 `shortcuts.ts` 与快捷委派测试，避免配置同步后因入口导入缺失而加载失败。
 - 修复手动关闭 Plan 后隐藏提醒残留、分支间状态串扰及 Execute 偶发不继续的问题；手动退出现在仅同步模式并发送一次性 inactive 提醒，只有显式 Execute 才通过 `followUp` 触发执行。
 - Plan 状态升级为带 revision、工具快照与一次性通知的 v2 结构，兼容历史 `{ enabled }` 数据；恢复过程只读取当前分支且不重复写入状态。

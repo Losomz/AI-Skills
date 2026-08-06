@@ -63,7 +63,7 @@ function hasFileRedirect(command: string): boolean {
 		if (command[targetIndex] === "&" && /[\d-]/.test(command[targetIndex + 1] ?? "")) continue;
 		while (/\s/.test(command[targetIndex] ?? "")) targetIndex += 1;
 		const target = command.slice(targetIndex);
-		if (/^(?:\/dev\/null|\$null|nul:?)(?:$|[\s;&|])/i.test(target)) continue;
+		if (/^\/dev\/null(?:$|[\s;&|])/i.test(target)) continue;
 		return true;
 	}
 	return false;

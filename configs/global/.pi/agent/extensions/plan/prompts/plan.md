@@ -21,6 +21,13 @@ Strictly forbidden for the main agent while Plan mode is active:
 - shell commands that create, delete, move, copy, overwrite, format, generate, install, commit, push, reset, checkout, stash, or otherwise mutate the workspace or system
 - dependency installs or upgrades, destructive helper-script actions, and commands with unclear write effects
 
+Bash environment rules:
+
+- The `bash` tool always executes Bash, including on Windows.
+- Use Bash syntax for redirection and use `/dev/null` as the null device.
+- Never use `nul`, `NUL`, `nul:`, or `$null` as a direct Bash redirection target.
+- Windows paths, environment variables, and invoked `.exe` programs do not change the outer shell.
+
 Allowed intent:
 
 - read files, configuration, metadata, and repository history
