@@ -94,7 +94,7 @@ local subagent-models.json thinking override
 > child Pi model/project/global default
 ```
 
-Thinking `Default` removes the local thinking override. It falls back to agent frontmatter when present; otherwise the child process receives no `--thinking` argument and uses its own default. `Off` is distinct: it stores `"off"` and passes `--thinking off`. Concrete levels are filtered using the selected model's capabilities; changing to a model that cannot use a staged level resets that staged level to Default. A stale or manually edited incompatible level is rejected before launch instead of being silently clamped. The same fully resolved `General` profile, including thinking, is used by `/git commit`.
+Thinking `Default` removes the local thinking override. It falls back to agent frontmatter when present; otherwise the child process receives no `--thinking` argument and uses its own default. `Off` is distinct: it stores `"off"` and passes `--thinking off`. Concrete levels are filtered using the selected model's capabilities; changing to a model that cannot use a staged level resets that staged level to Default. A stale or manually edited incompatible level is rejected before launch instead of being silently clamped. These per-agent settings apply only to Subagent runs; `/git commit` starts its own dedicated Pi process.
 
 The panel currently manages the bundled extension-local agents used by the default `project` scope. If the override file is malformed, normal delegation falls back to profile, main Agent, or child Pi defaults and reports a warning, while the panel refuses to overwrite the damaged file until it is repaired or removed.
 
@@ -105,7 +105,7 @@ model-catalog.ts    # Pi ModelRegistry adapter and refresh coalescing
 model-overrides.ts  # versioned local config, migration, locking, atomic writes, effective profile resolution
 model-picker.ts     # /subagent agent/model/thinking settings and RPC fallback
 thinking.ts         # supported persisted thinking values and parser
-agent-runner.ts     # isolated child process and explicit override propagation
+agent-runner.ts     # Subagent profile adapter over the package-neutral shared runner
 ```
 
 ## Bundled Agents
@@ -179,11 +179,11 @@ Subagents running (1):
   ⏳ Explore pid=1234 8s — 查找资源加载相关代码
 ```
 
-## Shared Process Runner
+## Process Runner
 
-`agent-runner.ts` exports `runAgentProcess({ profile, task, cwd, signal, onUpdate })`. It applies the resolved profile's model, optional explicit thinking level, tools, and system prompt to an ephemeral Pi process using `--mode json -p --no-session`, then returns normalized lifecycle and output data. When neither local configuration nor profile frontmatter resolves a level, `--thinking` is omitted; Off and concrete levels pass it explicitly. Model discovery and override persistence stay outside the runner so sibling extensions can reuse the same immutable resolved profile.
+`agent-runner.ts` exports the Subagent-facing `runAgentProcess({ profile, task, cwd, signal, onUpdate })` adapter. It maps a resolved profile into the package-neutral `../shared/pi-process-runner.ts`, which starts an ephemeral Pi process using `--mode json -p --no-session` and returns normalized lifecycle and output data. When neither local configuration nor profile frontmatter resolves a level, `--thinking` is omitted; Off and concrete levels pass it explicitly.
 
-The runner has no Pi extension, session, or UI dependency. The `subagent` tool and sibling extensions such as Git provide their own discovery, presentation, and result handling.
+The shared runner has no Pi extension, session, UI, agent-discovery, or model-override dependency. Subagent owns profile discovery and configuration; Git constructs its own dedicated process configuration without importing Subagent internals.
 
 ## Worktree Isolation
 

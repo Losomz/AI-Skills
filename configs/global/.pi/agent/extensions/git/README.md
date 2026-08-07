@@ -5,7 +5,7 @@ Layered Git command for Pi.
 ## Commands
 
 - `/git` - choose a Git operation from a menu with descriptions.
-- `/git commit` - 后台启动使用 `General` profile 的 Pi 进程，并询问可选的核心要求。
+- `/git commit` - 后台启动专用的 `GitCommit` Pi 进程，并询问可选的核心要求。
 - `/git commit ...核心要求` - 直接把后续文本作为本次提交要求，不再弹输入框。
 - `/git pull` - pull from the current branch with dirty-tree handling.
 - `/git branch` - switch or create branches.
@@ -25,6 +25,9 @@ git/
 ├── tests/
 │   └── commit.test.ts
 └── README.md
+
+../shared/
+└── pi-process-runner.ts # Git 与 Subagent 共用的中立 Pi 子进程 runner
 ```
 
 **index.ts 启动时自动扫描 `operations/` 目录**，加载所有导出 `{ value, label, description, handle }` 的模块。
@@ -48,9 +51,9 @@ git/
 
 ### commit
 
-`/git commit` resolves the bundled `General` profile and passes its model, optional explicit thinking level, tools, and base system prompt to the shared process runner. Model and thinking settings saved through `/subagent` apply here as well. Without a model override, `General` follows the current main Agent model. Thinking `Default` falls back to General frontmatter when present, or otherwise leaves the child Pi default untouched; Off and concrete levels are passed explicitly after model-capability validation. Git-specific rules come from `prompts/commit.md`. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends.
+`/git commit` directly constructs a dedicated `GitCommit` run and passes it to the package-neutral Pi process runner. The Git launch path does not discover a Subagent profile, invoke the `subagent` tool, or consult `subagent-models.json`. The run inherits the current parent Pi model and thinking level when available, and otherwise lets the child Pi use its own defaults. Parent-only runtime credentials are rejected before launch because a separate Pi process cannot inherit them. Git-specific rules come from `prompts/commit.md`.
 
-The process runs with `--mode json -p --no-session` in the current `ctx.cwd`. It performs the workflow with **sub-repo first** ordering:
+The child process runs with `--mode json -p --no-session --tools read,bash` in the current `ctx.cwd`. Pi still loads normal settings and extensions so configured providers remain available, but the tool allowlist prevents recursive Subagent invocation while retaining the shell access required for Git. The command returns after launch, shows PID and elapsed time in one temporary widget, and sends a notification when the process ends. It performs the workflow with **sub-repo first** ordering:
 
 1. **Discover sub-repos**: `git submodule status` + scan for nested `.git` directories
 2. **Commit sub-repos** (deepest path first)

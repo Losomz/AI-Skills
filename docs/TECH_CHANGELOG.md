@@ -7,14 +7,14 @@
 ### 功能变更
 
 - 将仓库正式封装为 `private: true` 的 Git Pi package `@losomz/picraft`，通过 `pi install git:github.com/Losomz/AgentFramework` 即可在其他机器安装 Plan、Subagent、Git、Init 和 Blog，并使用 Pi 内置 package 更新机制持续升级。
-- Subagent 的 `/subagent` 与 `Alt+M` 配置面板支持按 agent 分别暂存模型与 thinking；Thinking `Default` 保留子 Pi 的 profile/model/project/global 默认行为，`Off` 与具体级别显式传给子进程，`/git commit` 使用的 `General` 继承同一设置。
+- Subagent 的 `/subagent` 与 `Alt+M` 配置面板支持按 agent 分别暂存模型与 thinking；Thinking `Default` 保留子 Pi 的 profile/model/project/global 默认行为，`Off` 与具体级别显式传给子进程。`/git commit` 改为专用 `GitCommit` Pi 进程，直接继承当前父 Pi 的模型与 thinking，不再复用 Subagent 配置。
 
 ### 架构/重构
 
 - 在仓库根目录增加 PiCraft manifest，以显式资源入口加载 `configs/global/.pi/agent/` 下的五个扩展及预留的 skills、prompts、themes；Pi 核心模块声明为 optional peer dependencies，避免把 Pi 运行时重复打包进 Git package。
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
 - Plan 与 subagent 解除双向协议耦合：Plan 只保留 Pi 中已经注册且已激活的普通 `subagent` 工具，不再解析或约束子代理的 Plan 专属 policy；subagent 也不再读取 Plan 状态。
-- Subagent 将 Pi 子进程执行提取为无 UI、无会话依赖的共享 runner；通用子代理工具和 `/git commit` 分别负责自己的展示与结果适配。
+- 将 Pi 子进程执行器移动到扩展中立的 `shared/pi-process-runner.ts`；Subagent 通过 profile 适配层调用，Git 直接构造专用运行配置，双方不再依赖彼此的私有实现。
 
 ### 问题修复
 
@@ -22,7 +22,7 @@
 - 补回 Subagent 已拆分但未纳入仓库的 `shortcuts.ts` 与快捷委派测试，避免配置同步后因入口导入缺失而加载失败。
 - 修复手动关闭 Plan 后隐藏提醒残留、分支间状态串扰及 Execute 偶发不继续的问题；手动退出现在仅同步模式并发送一次性 inactive 提醒，只有显式 Execute 才通过 `followUp` 触发执行。
 - Plan 状态升级为带 revision、工具快照与一次性通知的 v2 结构，兼容历史 `{ enabled }` 数据；恢复过程只读取当前分支且不重复写入状态。
-- `/git commit` 固定复用 `General` profile，在后台 Pi 进程中执行独立的 Git 任务模板；命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
+- 修复 `/git commit` 启动前依赖 `General` profile、在 package 迁移期可能报“未找到 General profile”的问题；现在直接启动工具限制为 `read,bash` 的专用 `GitCommit` Pi 进程，命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
 - 修复 Windows 下 Pi 子进程通过 shell 传递任务参数的转义风险，并补齐 AbortSignal 的强制终止回退与监听器、定时器、临时文件清理。
 
 ### 测试/质量
@@ -30,14 +30,14 @@
 - 通过现有 Plan、Subagent 和 Git 回归测试验证 package 改造未改变扩展行为，并通过 RPC 隔离加载确认 PiCraft 只注册一套预期扩展命令。
 - 增加 Subagent 模型目录、v1 到 v2 配置迁移、thinking 合法值与模型能力过滤、原子写入、跨进程锁恢复、override 优先级、特殊模型 ID 和 Git profile 继承回归。
 - 增加基于 Node `node:test` 的 Plan 回归覆盖，验证统一入口、pending 生命周期、上下文归一化、分支恢复、工具交集与主 Agent 写操作防护。
-- 增加 Git 后台任务与共享 runner 回归，覆盖立即返回、重复启动、General profile 继承、PID/耗时 UI、失败与 headless 输出、无 shell 启动及进程资源清理。
+- 增加 Git 后台任务与共享 runner 回归，覆盖无 General 依赖的专用运行配置、父模型/thinking 继承、默认回退、立即返回、重复启动、PID/耗时 UI、失败与 headless 输出、无 shell 启动及进程资源清理。
 
 ### 风险与迁移说明
 
 - Pi package 不会覆盖 `~/.pi/agent/extensions/` 中的同名手工扩展；首次安装 PiCraft 时必须通过 `pi config` 禁用旧的 Plan、Subagent、Git、Init 和 Blog 入口，验证 package 正常后再清理这五个旧目录，且不能删除 Orca 等其他扩展。
 - Plan 的命令 denylist 仅是主 Agent 的辅助防护而非安全沙箱；已激活的可写/full-access subagent 仍可能修改工作区，需要通过 subagent 自身能力配置或禁用该工具进行隔离。
 - Plan 扩展最低要求 Pi 0.80.4，以使用稳定的 `agent_settled` 生命周期事件。
-- `/git commit` 现在只接受可选的核心要求，不再解析 agent 参数；后台进程仍在真实 `ctx.cwd` 中提交和推送。`subagent-models.json` v1 文件会兼容读取，并在下一次 `/subagent` 保存时升级为 v2。更新 PiCraft package 或手工同步全局扩展后需执行 `/reload`。
+- `/git commit` 现在只接受可选的核心要求，不再解析 agent 参数，Git 启动链也不再读取 `subagent-models.json`；子 Pi 仍会正常加载全局扩展和 Provider 配置，并在真实 `ctx.cwd` 中提交和推送。父进程临时 runtime credential 无法跨进程继承，命令会在启动前给出明确错误。`subagent-models.json` v1 文件仍由 Subagent 兼容读取，并在下一次 `/subagent` 保存时升级为 v2。更新 PiCraft package 或手工同步全局扩展后需执行 `/reload`。
 
 ## [v0.1.0] - 2026-06-30
 

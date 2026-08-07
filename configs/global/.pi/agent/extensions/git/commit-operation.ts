@@ -2,30 +2,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig } from "../subagent/agents.js";
 import type {
-	AgentProcessOptions,
-	AgentProcessResult,
-	AgentProcessUpdate,
-} from "../subagent/agent-runner.js";
+	PiProcessConfig,
+	PiProcessOptions,
+	PiProcessResult,
+	PiProcessUpdate,
+} from "../shared/pi-process-runner.js";
 
-const COMMIT_AGENT = "General";
+const COMMIT_PROCESS = "GitCommit";
+const COMMIT_TOOLS = ["read", "bash"];
 const COMMIT_WIDGET_KEY = "git-commit";
 const CORE_STANDARD_PLACEHOLDER = "{{CORE_STANDARD}}";
 const DEFAULT_CORE_STANDARD = "无额外要求，请根据实际改动决定提交范围并生成提交信息。";
 
 export interface CommitOperationDependencies {
-	discoverAgents: (cwd: string, ctx: ExtensionContext) => AgentConfig[];
-	findAgentByName: (agents: AgentConfig[], name: string) => AgentConfig | undefined;
-	runAgentProcess: (options: AgentProcessOptions) => Promise<AgentProcessResult>;
-	validateAgentProfile?: (profile: AgentConfig, ctx: ExtensionContext) => string | undefined;
+	runPiProcess: (options: PiProcessOptions) => Promise<PiProcessResult>;
 	loadPromptTemplate?: () => string | Promise<string>;
 	writeHeadless?: (message: string) => void;
 }
 
 interface ActiveCommitRun {
 	token: symbol;
-	agent: string;
+	name: string;
 	startedAt: number;
 	pid?: number;
 	timer?: NodeJS.Timeout;
@@ -111,7 +109,7 @@ function setCommitWidget(ctx: ExtensionContext, run: ActiveCommitRun | undefined
 		const elapsed = formatDuration(Date.now() - run.startedAt);
 		ctx.ui.setWidget(
 			COMMIT_WIDGET_KEY,
-			[`Git 提交中 · ${run.agent} · PID ${pid} · ${elapsed}`],
+			[`Git 提交中 · ${run.name} · PID ${pid} · ${elapsed}`],
 			{ placement: "aboveEditor" },
 		);
 	} catch {
@@ -122,6 +120,17 @@ function setCommitWidget(ctx: ExtensionContext, run: ActiveCommitRun | undefined
 function notifyOrLog(ctx: ExtensionContext, writeHeadless: (message: string) => void, message: string, level: "info" | "error"): void {
 	if (ctx.hasUI) ctx.ui.notify(message, level);
 	else writeHeadless(message);
+}
+
+function getCommitModelError(ctx: ExtensionContext, model: ExtensionContext["model"]): string | undefined {
+	if (!model) return undefined;
+	const auth = ctx.modelRegistry.getProviderAuthStatus(model.provider);
+	if (auth.source !== "runtime") return undefined;
+	return `当前模型 ${model.provider}/${model.id} 仅使用父 Pi 的临时运行时凭据，独立 GitCommit 进程无法继承。请改用持久凭据或环境变量后重试。`;
+}
+
+function releasePreparingRun(run: ActiveCommitRun): void {
+	if (activeCommitRun?.token === run.token) activeCommitRun = undefined;
 }
 
 async function resolveCoreStandard(ctx: ExtensionContext, inlineValue: string): Promise<string | undefined> {
@@ -135,7 +144,7 @@ async function resolveCoreStandard(ctx: ExtensionContext, inlineValue: string): 
 	return input?.trim();
 }
 
-function toOutcome(result: AgentProcessResult, fallback: ActiveCommitRun): CommitOutcome {
+function toOutcome(result: PiProcessResult, fallback: ActiveCommitRun): CommitOutcome {
 	const status = result.status === "aborted"
 		? "aborted"
 		: result.failed || result.status === "failed"
@@ -201,7 +210,7 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 		value: "commit",
 		order: 1,
 		label: "commit",
-		description: "后台使用 General 完成提交和推送",
+		description: "后台启动独立 Pi 完成提交和推送",
 
 		async handle(_pi: ExtensionAPI, ctx: ExtensionContext, args = ""): Promise<void> {
 			if (activeCommitRun) {
@@ -210,32 +219,45 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 				notifyOrLog(
 					ctx,
 					writeHeadless,
-					`已有 Git commit 后台任务运行中：${activeCommitRun.agent}${pid}，已运行 ${elapsed}`,
+					`已有 Git commit 后台任务正在准备或运行：${activeCommitRun.name}${pid}，已用时 ${elapsed}`,
 					"info",
 				);
 				return;
 			}
 
-			let profile: AgentConfig | undefined;
+			const run: ActiveCommitRun = {
+				token: Symbol("git-commit-run"),
+				name: COMMIT_PROCESS,
+				startedAt: Date.now(),
+			};
+			activeCommitRun = run;
+
+			const model = ctx.model;
+			const thinkingLevel = ctx.thinkingLevel;
+			let modelError: string | undefined;
 			try {
-				const agents = dependencies.discoverAgents(ctx.cwd, ctx);
-				profile = dependencies.findAgentByName(agents, COMMIT_AGENT);
+				modelError = getCommitModelError(ctx, model);
 			} catch (error) {
+				releasePreparingRun(run);
 				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${error instanceof Error ? error.message : String(error)}`, "error");
 				return;
 			}
-			if (!profile) {
-				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：未找到 ${COMMIT_AGENT} profile。`, "error");
-				return;
-			}
-			const profileError = dependencies.validateAgentProfile?.(profile, ctx);
-			if (profileError) {
-				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${profileError}`, "error");
+			if (modelError) {
+				releasePreparingRun(run);
+				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${modelError}`, "error");
 				return;
 			}
 
-			const coreStandard = await resolveCoreStandard(ctx, args);
+			let coreStandard: string | undefined;
+			try {
+				coreStandard = await resolveCoreStandard(ctx, args);
+			} catch (error) {
+				releasePreparingRun(run);
+				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${error instanceof Error ? error.message : String(error)}`, "error");
+				return;
+			}
 			if (coreStandard === undefined) {
+				releasePreparingRun(run);
 				notifyOrLog(ctx, writeHeadless, "Git commit 已取消。", "info");
 				return;
 			}
@@ -245,16 +267,19 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 				const template = await (dependencies.loadPromptTemplate?.() ?? readPromptTemplate());
 				task = buildCommitTask(coreStandard, template);
 			} catch (error) {
+				releasePreparingRun(run);
 				notifyOrLog(ctx, writeHeadless, `Git commit 启动失败：${error instanceof Error ? error.message : String(error)}`, "error");
 				return;
 			}
 
-			const run: ActiveCommitRun = {
-				token: Symbol("git-commit-run"),
-				agent: profile.name,
-				startedAt: Date.now(),
+			const config: PiProcessConfig = {
+				name: run.name,
+				model: model ? `${model.provider}/${model.id}` : undefined,
+				thinkingLevel,
+				tools: [...COMMIT_TOOLS],
+				systemPrompt: "",
 			};
-			activeCommitRun = run;
+			run.startedAt = Date.now();
 			const refreshWidget = (): void => {
 				if (activeCommitRun?.token === run.token) setCommitWidget(ctx, run);
 			};
@@ -263,16 +288,16 @@ export function createCommitOperation(dependencies: CommitOperationDependencies)
 				run.timer.unref?.();
 				refreshWidget();
 			} else {
-				writeHeadless(`Git commit 已启动 · ${profile.name}`);
+				writeHeadless(`Git commit 已启动 · ${config.name}`);
 			}
 
-			let runPromise: Promise<AgentProcessResult>;
+			let runPromise: Promise<PiProcessResult>;
 			try {
-				runPromise = dependencies.runAgentProcess({
-					profile,
+				runPromise = dependencies.runPiProcess({
+					config,
 					task,
 					cwd: ctx.cwd,
-					onUpdate: (update: AgentProcessUpdate) => {
+					onUpdate: (update: PiProcessUpdate) => {
 						if (activeCommitRun?.token !== run.token) return;
 						run.pid = update.pid ?? run.pid;
 						run.startedAt = update.startedAt;
