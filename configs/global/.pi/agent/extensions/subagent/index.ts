@@ -21,6 +21,7 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, findAgentByName } from "./agents.js";
 import {
+	getSubagentNameFromEnvironment,
 	runAgentProcess,
 	type AgentProcessStatus,
 } from "./agent-runner.js";
@@ -49,6 +50,16 @@ const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
 const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls", "bash", "questionnaire"]);
+
+function findLastActiveAgentName(ctx: ExtensionContext): string | undefined {
+	const entries = ctx.sessionManager.getEntries();
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index] as { type?: string; customType?: string; data?: { name?: unknown } };
+		if (entry.type !== "custom" || entry.customType !== "active_agent") continue;
+		return typeof entry.data?.name === "string" ? entry.data.name : undefined;
+	}
+	return undefined;
+}
 
 function getAgentCapability(agent: AgentConfig): string {
 	if (!agent.tools || agent.tools.length === 0) return "full-access/writable";
@@ -527,6 +538,7 @@ async function runSingleAgent(
 			profile: agent,
 			task,
 			cwd: cwd ?? defaultCwd,
+			parentSessionId: ctx.sessionManager.getSessionId(),
 			signal,
 			onUpdate: (partial) => {
 				currentResult.agent = partial.agent;
@@ -616,6 +628,11 @@ export default function (pi: ExtensionAPI) {
 	registerSubagentConfiguration(pi);
 
 	pi.on("session_start", (_event, ctx) => {
+		const activeSubagentName = getSubagentNameFromEnvironment();
+		if (activeSubagentName && findLastActiveAgentName(ctx) !== activeSubagentName) {
+			pi.appendEntry("active_agent", { name: activeSubagentName });
+		}
+
 		if (!ctx.hasUI) return;
 
 		ctx.ui.addAutocompleteProvider((current) => ({

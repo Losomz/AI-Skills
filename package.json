@@ -1,6 +1,6 @@
 {
   "name": "@losomz/picraft",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "An opinionated Pi workflow suite for planning, subagents, Git automation, project initialization, and publishing.",

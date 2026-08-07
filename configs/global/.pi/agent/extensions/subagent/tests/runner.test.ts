@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { AgentConfig } from "../agents.ts";
-import { resolvePiInvocation, runAgentProcess } from "../agent-runner.ts";
+import { getSubagentNameFromEnvironment, resolvePiInvocation, runAgentProcess } from "../agent-runner.ts";
 
 interface TempScript {
 	dir: string;
@@ -69,7 +69,13 @@ test("resolvePiInvocation uses the current CLI entry for Node and the executable
 	);
 });
 
-test("runAgentProcess inherits cwd, model, tools, system prompt, and ephemeral Pi flags", async () => {
+test("subagent identity requires an explicit process marker and trims the agent name", () => {
+	assert.equal(getSubagentNameFromEnvironment({ PI_SUBAGENT_NAME: "General" }), undefined);
+	assert.equal(getSubagentNameFromEnvironment({ PI_IS_SUBAGENT: "1", PI_SUBAGENT_NAME: "  General  " }), "General");
+	assert.equal(getSubagentNameFromEnvironment({ PI_IS_SUBAGENT: "1", PI_SUBAGENT_NAME: "  " }), undefined);
+});
+
+test("runAgentProcess forwards permission context with cwd, model, tools, system prompt, and ephemeral Pi flags", async () => {
 	const script = createTempScript(`
 		const fs = require("node:fs");
 		const args = process.argv.slice(2);
@@ -80,6 +86,11 @@ test("runAgentProcess inherits cwd, model, tools, system prompt, and ephemeral P
 			cwd: process.cwd(),
 			promptPath,
 			prompt: promptPath ? fs.readFileSync(promptPath, "utf8") : "",
+			permissionEnv: {
+				isSubagent: process.env.PI_IS_SUBAGENT,
+				parentSession: process.env.PI_SUBAGENT_PARENT_SESSION,
+				agentName: process.env.PI_SUBAGENT_NAME,
+			},
 		};
 		process.stdout.write("non-json noise\\r\\n");
 		process.stdout.write(JSON.stringify({
@@ -99,9 +110,16 @@ test("runAgentProcess inherits cwd, model, tools, system prompt, and ephemeral P
 			profile: profile({ thinkingLevel: "medium" }),
 			task: "run test task",
 			cwd: script.dir,
+			parentSessionId: "parent-session-123",
 			onUpdate: (update) => statuses.push(update.status),
 		});
-		const payload = JSON.parse(result.output) as { args: string[]; cwd: string; promptPath: string; prompt: string };
+		const payload = JSON.parse(result.output) as {
+			args: string[];
+			cwd: string;
+			promptPath: string;
+			prompt: string;
+			permissionEnv: { isSubagent?: string; parentSession?: string; agentName?: string };
+		};
 
 		assert.equal(result.status, "completed");
 		assert.equal(result.failed, false);
@@ -120,7 +138,13 @@ test("runAgentProcess inherits cwd, model, tools, system prompt, and ephemeral P
 		assert.ok(payload.args.includes("--tools"));
 		assert.ok(payload.args.includes("read,bash"));
 		assert.ok(payload.args.includes("Task: run test task"));
-		assert.equal(payload.prompt, "General base prompt");
+		assert.match(payload.prompt, /^<active_agent name="General"><\/active_agent>\n\n/);
+		assert.match(payload.prompt, /General base prompt$/);
+		assert.deepEqual(payload.permissionEnv, {
+			isSubagent: "1",
+			parentSession: "parent-session-123",
+			agentName: "General",
+		});
 		assert.equal(fs.existsSync(payload.promptPath), false);
 		assert.equal(statuses[0], "pending");
 		assert.equal(statuses.at(-1), "completed");

@@ -53,6 +53,7 @@ export interface PiProcessOptions {
 	config: PiProcessConfig;
 	task: string;
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	signal?: AbortSignal;
 	onUpdate?: (update: PiProcessUpdate) => void;
 }
@@ -226,6 +227,7 @@ export async function runPiProcess(options: PiProcessOptions): Promise<PiProcess
 		const processResult = await new Promise<PiProcessResult>((resolve) => {
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: options.cwd,
+				env: options.env,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 			});

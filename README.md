@@ -21,6 +21,7 @@ AgentFramework/
 │   │       │   ├── blog/            # /blog 文件化日志工作流
 │   │       │   ├── git/             # /git 分层 Git 操作入口
 │   │       │   ├── init/            # /init 与 AGENTS.md 初始化模板
+│   │       │   ├── pi-permission-system/ # 外部权限包的全局策略源
 │   │       │   ├── plan/            # /plan 计划模式
 │   │       │   └── subagent/        # 子代理扩展与内置 agents
 │   │       ├── prompts/
@@ -78,6 +79,25 @@ pi update git:github.com/Losomz/AgentFramework
 ```bash
 pi remove git:github.com/Losomz/AgentFramework
 ```
+
+#### 工具授权
+
+PiCraft 使用独立的 `@gotgenes/pi-permission-system` package 提供工具调用审批。固定版本安装命令：
+
+```bash
+pi install npm:@gotgenes/pi-permission-system@24.0.0
+```
+
+策略源与本机生效路径分别是：
+
+```text
+configs/global/.pi/agent/extensions/pi-permission-system/config.json
+~/.pi/agent/extensions/pi-permission-system/config.json
+```
+
+默认放行项目内读取、编辑、测试和构建；访问当前工作目录之外的路径、访问项目内 `.env` 类敏感文件、执行删除、系统控制、危险 Git 操作或不透明的 PowerShell/CMD/shell 命令时询问。权限包应排在 PiCraft 之后加载，使 Plan 的只读硬限制先执行。PiCraft Subagent 会向子进程传递父会话信息，让无 UI 子 Agent 的 `ask` 请求回到主 TUI，而不是自动拒绝。
+
+权限弹窗支持允许一次和本会话允许，不会自动持久化新的全局规则。权限审批是工具调用策略层，不是操作系统沙箱；不可信仓库或无人值守任务仍应使用容器、虚拟机或其他隔离环境。
 
 #### 从手工扩展迁移
 
@@ -150,6 +170,7 @@ configs/global/.pi/agent/extensions/
 当前扩展：
 
 - `init/`：提供 `/init`，用基础说明和可选模板创建或更新目标项目的 `AGENTS.md`。
+- `pi-permission-system/`：只保存外部权限 package 的可同步全局策略，不是 PiCraft 自己加载的 extension 入口。
 - `plan/`：提供 `/plan` 计划模式，限制写工具并注入规划提示。
 - `subagent/`：提供子代理工具、`#AgentName` 快捷委派、per-agent 模型与 thinking 配置面板，以及内置 `General` / `Explore` / `Scout`。
 - `git/`：提供 `/git` 分层入口，包括 commit、pull、branch 等 Git 工作流。

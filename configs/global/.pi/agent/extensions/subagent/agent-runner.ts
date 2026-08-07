@@ -47,6 +47,7 @@ export interface AgentProcessOptions {
 	profile: AgentConfig;
 	task: string;
 	cwd: string;
+	parentSessionId?: string;
 	signal?: AbortSignal;
 	onUpdate?: (update: AgentProcessUpdate) => void;
 }
@@ -63,6 +64,36 @@ export function buildAgentProcessArgs(
 	systemPromptPath?: string,
 ): string[] {
 	return buildPiProcessArgs(profile, task, systemPromptPath);
+}
+
+function escapeXmlAttribute(value: string): string {
+	return value
+		.replace(/[\u0000-\u001f\u007f]/g, " ")
+		.replaceAll("&", "&amp;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+}
+
+function buildSubagentSystemPrompt(profile: AgentConfig): string {
+	const agentName = escapeXmlAttribute(profile.name.trim() || "Subagent");
+	return `<active_agent name="${agentName}"></active_agent>\n\n${profile.systemPrompt}`;
+}
+
+function buildSubagentEnvironment(profile: AgentConfig, parentSessionId: string | undefined): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		PI_IS_SUBAGENT: "1",
+		PI_SUBAGENT_NAME: profile.name,
+	};
+	if (parentSessionId?.trim()) env.PI_SUBAGENT_PARENT_SESSION = parentSessionId.trim();
+	else delete env.PI_SUBAGENT_PARENT_SESSION;
+	return env;
+}
+
+export function getSubagentNameFromEnvironment(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	if (!env.PI_IS_SUBAGENT?.trim()) return undefined;
+	return env.PI_SUBAGENT_NAME?.trim() || undefined;
 }
 
 function toAgentUpdate(update: PiProcessUpdate): AgentProcessUpdate {
@@ -96,10 +127,11 @@ export async function runAgentProcess(options: AgentProcessOptions): Promise<Age
 			model: options.profile.model,
 			thinkingLevel: options.profile.thinkingLevel,
 			tools: options.profile.tools,
-			systemPrompt: options.profile.systemPrompt,
+			systemPrompt: buildSubagentSystemPrompt(options.profile),
 		},
 		task: options.task,
 		cwd: options.cwd,
+		env: buildSubagentEnvironment(options.profile, options.parentSessionId),
 		signal: options.signal,
 		onUpdate: options.onUpdate ? (update) => options.onUpdate?.(toAgentUpdate(update)) : undefined,
 	});

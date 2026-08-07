@@ -54,6 +54,36 @@ configs/global/.pi/agent/themes/
 
 `auth.json`、`settings.json`、`models.json`、`keybindings.json`、`sessions/`、`subagent-models.json`、Orca 扩展和外部 CLI 不属于 package，每台机器独立管理。
 
+### 工具授权伴随包
+
+Pi 本身不提供内置 permission popup 或沙箱。PiCraft 使用独立 package 提供 `allow / ask / deny` 工具审批：
+
+```bash
+pi install npm:@gotgenes/pi-permission-system@24.0.0
+```
+
+它必须作为单独的 Pi package 安装；把它写进 PiCraft 的 npm `dependencies` 不会让 Pi 自动加载依赖包声明的 extension。安装后 `settings.json` 的 package 顺序应保持 PiCraft 在前、permission-system 在后，这样 Plan 的只读守卫能先阻断违规调用，Execute模式中的其余调用再进入授权策略。
+
+仓库策略源：
+
+```text
+configs/global/.pi/agent/extensions/pi-permission-system/config.json
+```
+
+本机生效文件：
+
+```text
+~/.pi/agent/extensions/pi-permission-system/config.json
+```
+
+当前策略有意保持简单：默认允许项目内工具调用；`external_directory` 对当前 `ctx.cwd` 之外的路径询问；`.env` 类敏感路径询问；Bash只对删除、权限/进程/系统控制、危险 Git 状态变更和不透明 shell/PowerShell/CMD入口询问。由于工作区边界就是启动目录，应从仓库根目录启动 Pi。
+
+交互 TUI 中可选择允许一次或本会话允许。Print/JSON等无 UI模式会对 `ask` 默认拒绝。PiCraft的 Subagent子进程通过 `PI_IS_SUBAGENT`、`PI_SUBAGENT_PARENT_SESSION` 和 `PI_SUBAGENT_NAME` 将审批转发到父 TUI；共享 runner 的 Git专用进程不设置这些标识。
+
+`permissionReviewLog` 默认开启，日志位于 `~/.pi/agent/extensions/pi-permission-system/logs/`。日志会原样记录 Bash命令，应避免把凭据直接放进命令行，分享日志前也必须检查敏感信息。
+
+该扩展只是工具调用审批层，不是操作系统安全边界。扩展本身仍以当前用户权限运行；处理不可信代码或无人值守任务时应使用容器、VM或受控沙箱。
+
 ### 从手工副本迁移
 
 Pi package 的管理目录与 `~/.pi/agent/extensions/` 相互独立。安装 package 不会覆盖已经手工复制的同名扩展；两者同时启用会产生重复命令、快捷键和事件处理器。
