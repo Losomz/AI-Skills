@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "An opinionated Pi workflow suite for planning, subagents, Git automation, project initialization, and publishing.",
+  "description": "An opinionated Pi workflow suite for planning, permissions, subagents, Git automation, project initialization, and publishing.",
   "license": "UNLICENSED",
   "keywords": [
     "pi-package",
@@ -48,7 +48,8 @@
       "./configs/global/.pi/agent/extensions/subagent/index.ts",
       "./configs/global/.pi/agent/extensions/git/index.ts",
       "./configs/global/.pi/agent/extensions/init/index.ts",
-      "./configs/global/.pi/agent/extensions/blog/index.ts"
+      "./configs/global/.pi/agent/extensions/blog/index.ts",
+      "./configs/global/.pi/agent/extensions/permission/index.ts"
     ],
     "skills": [
       "./configs/global/.pi/agent/skills"
