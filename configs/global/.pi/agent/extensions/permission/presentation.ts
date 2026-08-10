@@ -1,8 +1,8 @@
 import { posix } from "node:path";
 
-import type { PermissionName, PermissionRequest, PermissionRequirement } from "./core.ts";
+import { requirementAccess, type PermissionRequest, type PermissionRequirement } from "./core.ts";
 
-export type PermissionScopeLabel = "External" | "Sensitive read";
+export type PermissionScopeLabel = "External" | "External read" | "External write" | "Sensitive read";
 
 export interface PermissionScope {
 	label: PermissionScopeLabel;
@@ -227,11 +227,11 @@ function presentScopes(request: PermissionRequest, cwd: string, home: string): P
 	const scopes: PermissionScope[] = [];
 
 	for (const requirement of request.requirements) {
-		const key = `${requirement.permission}\0${requirement.alwaysPattern}`;
+		const key = `${requirement.permission}\0${requirementAccess(requirement)}\0${requirement.alwaysPattern}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		scopes.push({
-			label: scopeLabel(requirement.permission),
+			label: scopeLabel(requirement),
 			scope: compactPath(requirement.alwaysPattern, cwd, home),
 		});
 	}
@@ -239,8 +239,12 @@ function presentScopes(request: PermissionRequest, cwd: string, home: string): P
 	return scopes;
 }
 
-function scopeLabel(permission: PermissionName): PermissionScopeLabel {
-	return permission === "external_directory" ? "External" : "Sensitive read";
+function scopeLabel(requirement: PermissionRequirement): PermissionScopeLabel {
+	if (requirement.permission === "read") return "Sensitive read";
+	const access = requirementAccess(requirement);
+	if (access === "read") return "External read";
+	if (access === "write") return "External write";
+	return "External";
 }
 
 function compactCommand(command: string, cwd: string, home: string): string {

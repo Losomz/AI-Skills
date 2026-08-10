@@ -57,9 +57,9 @@ configs/global/.pi/agent/themes/
 
 ### 工具授权
 
-PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。Plan 在 manifest 中最先加载，因此 Plan 的只读守卫先执行；Execute 模式下，项目内普通操作默认允许，读取 `.env` 类文件和访问项目边界之外的路径会询问。
+PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。Plan 在 manifest 中最先加载，因此 Plan 的只读守卫先执行；Execute 模式下，项目内普通操作和当前 worktree 的 Git 管理目录默认允许。Pi 核心、插件、package、skills、当前消息附件和精确工具输出可直接读取；其他外部路径以及 `.env`、`auth.json`、`models.json`、sessions 和权限日志读取会询问，整个临时目录不会被加入白名单。
 
-审批支持允许一次、本会话允许和拒绝。本会话授权只存于内存，可通过 `/permissions` 查看、撤销或清空；Print/JSON 等无 UI 模式对需要询问的调用默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
+审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
 
 ### 从手工副本迁移
 

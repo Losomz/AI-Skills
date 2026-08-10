@@ -7,16 +7,17 @@
 ### 功能变更
 
 - 将仓库正式封装为 `private: true` 的 Git Pi package `@losomz/picraft`，通过 `pi install git:github.com/Losomz/AgentFramework` 即可在其他机器安装 Plan、Subagent、Git、Init 和 Blog，并使用 Pi 内置 package 更新机制持续升级。
-- 新增 PiCraft 原生 `permission` 扩展；默认放行项目内普通操作，仅对工作区外路径和 `.env` 类敏感读取询问，提供允许一次、本会话允许、拒绝和会话授权管理。
+- 新增 PiCraft 原生 `permission` 扩展；默认放行项目内普通操作和明确的 Pi 内部读取，仅对工作区外路径及 `.env`、凭据、sessions 等敏感读取询问。Always 由父对话集中管理并与 Subagent 共享，提交后立即释放规则覆盖的 pending 请求。
 - Subagent 的 `/subagent` 与 `Alt+M` 配置面板支持按 agent 分别暂存模型与 thinking；Thinking `Default` 保留子 Pi 的 profile/model/project/global 默认行为，`Off` 与具体级别显式传给子进程。`/git commit` 改为专用 `GitCommit` Pi 进程，直接继承当前父 Pi 的模型与 thinking，不再复用 Subagent 配置。
 
 ### 架构/重构
 
-- 在仓库根目录增加 PiCraft manifest，以显式资源入口加载 `configs/global/.pi/agent/` 下的五个扩展及预留的 skills、prompts、themes；Pi 核心模块声明为 optional peer dependencies，避免把 Pi 运行时重复打包进 Git package。
+- 在仓库根目录增加 PiCraft manifest，以显式资源入口加载 `configs/global/.pi/agent/` 下的六个扩展及预留的 skills、prompts、themes；Pi 核心模块声明为 optional peer dependencies，避免把 Pi 运行时重复打包进 Git package。
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
 - Plan 与 subagent 解除双向协议耦合：Plan 只保留 Pi 中已经注册且已激活的普通 `subagent` 工具，不再解析或约束子代理的 Plan 专属 policy；subagent 也不再读取 Plan 状态。
 - 将 Pi 子进程执行器移动到扩展中立的 `shared/pi-process-runner.ts`；Subagent 通过 profile 适配层调用，Git 直接构造专用运行配置，双方不再依赖彼此的私有实现。
 - 权限审批改为 PiCraft 自带扩展并由 package manifest 直接加载，不再依赖独立第三方 package、审计日志或额外安装顺序。
+- Permission 使用 `globalThis + Symbol.for(...)` 维护进程级 authority 和重复注册守卫；父对话通过会话期快照向 Subagent 投影读写分离的 Always 规则，未匹配请求再经文件邮箱回到父 authority，Subagent 与 Git runner 均保持原 JSON 模式。
 
 ### 问题修复
 
@@ -26,6 +27,7 @@
 - Plan 状态升级为带 revision、工具快照与一次性通知的 v2 结构，兼容历史 `{ enabled }` 数据；恢复过程只读取当前分支且不重复写入状态。
 - 修复 `/git commit` 启动前依赖 `General` profile、在 package 迁移期可能报“未找到 General profile”的问题；现在直接启动工具限制为 `read,bash` 的专用 `GitCommit` Pi 进程，命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
 - 修复 Windows 下 Pi 子进程通过 shell 传递任务参数的转义风险，并补齐 AbortSignal 的强制终止回退与监听器、定时器、临时文件清理。
+- 修复 linked worktree Git 管理目录、Pi 插件/package、附件和精确 `pi-bash` 输出被误判为外部路径，以及同一地址 Always 后重复询问的问题。
 
 ### 测试/质量
 

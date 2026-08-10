@@ -82,9 +82,9 @@ pi remove git:github.com/Losomz/AgentFramework
 
 #### 工具授权
 
-PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。默认允许项目内普通读取、编辑、删除、Git、测试和构建；读取 `.env` 类文件或访问项目边界之外的路径时询问。
+PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。默认允许项目内普通操作和当前 worktree 的 Git 管理目录；Pi 核心、插件、package、skills 以及当前对话登记的附件和工具输出可直接读取。访问其他外部路径，或读取 `.env`、`auth.json`、`models.json`、sessions 和权限日志时询问；修改 Pi 安装文件仍按外部写入处理。
 
-审批提供 `Allow once / Allow always / Reject`。Always 只保存在当前 Pi 会话，`/permissions` 可查看或撤销会话授权；无 UI 模式对需要询问的操作默认拒绝。权限审批是工具调用策略层，不是操作系统沙箱。
+审批提供 `Allow once / Allow always / Reject`。Always 只属于当前父对话并区分读写作用域；Subagent 会直接复用仍然有效的父授权，未匹配的请求才转交父 authority。授权提交后会释放同一规则覆盖的 pending 请求，`/permissions` 可查看或撤销；无 UI 或父 authority 不可用时默认拒绝。权限审批是工具调用策略层，不是操作系统沙箱。
 
 #### 从手工扩展迁移
 
