@@ -43,17 +43,24 @@ Package 当前加载：
 
 ```text
 configs/global/.pi/agent/extensions/plan/index.ts
-configs/global/.pi/agent/extensions/permission/index.ts
+configs/global/.pi/agent/extensions/questionnaire/index.ts
 configs/global/.pi/agent/extensions/subagent/index.ts
 configs/global/.pi/agent/extensions/git/index.ts
 configs/global/.pi/agent/extensions/init/index.ts
 configs/global/.pi/agent/extensions/blog/index.ts
+configs/global/.pi/agent/extensions/permission/index.ts
 configs/global/.pi/agent/skills/
 configs/global/.pi/agent/prompts/
 configs/global/.pi/agent/themes/
 ```
 
 `auth.json`、`settings.json`、`models.json`、`keybindings.json`、`sessions/`、`subagent-models.json`、Orca 扩展和外部 CLI 不属于 package，每台机器独立管理。
+
+### 意图询问
+
+PiCraft 注册 `questionnaire` 工具，让主 Agent 在无法从代码、配置、文档和项目约定推导关键用户意图时主动询问。相关问题会批量展示，每题可使用单选或多选并固定提供自由输入；多题通过标签页和 Review 集中提交，未回答项会明确返回 `Unanswered`，不使用超时自动选择。
+
+TUI 使用富交互界面。RPC、JSON、Print 与独立 Subagent 不提供 Pi TUI，扩展会从 active tools 移除该工具；子 Agent 应把关键歧义返回父对话。若已安装其他同名 `questionnaire` 扩展，应在 `pi config` 中只保留一个入口。
 
 ### 工具授权
 

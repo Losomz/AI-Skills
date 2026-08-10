@@ -6,13 +6,14 @@
 
 ### 功能变更
 
-- 将仓库正式封装为 `private: true` 的 Git Pi package `@losomz/picraft`，通过 `pi install git:github.com/Losomz/AgentFramework` 即可在其他机器安装 Plan、Subagent、Git、Init 和 Blog，并使用 Pi 内置 package 更新机制持续升级。
+- 新增 `questionnaire` 主动意图澄清扩展；主 Agent 可在关键需求无法从仓库事实推导时批量询问，支持逐题单选或多选、固定自由输入、多问题 Review 和 TUI 富交互，RPC、JSON、Print 与独立 Subagent 自动停用。
+- 将仓库正式封装为 `private: true` 的 Git Pi package `@losomz/picraft`，通过 `pi install git:github.com/Losomz/AgentFramework` 即可在其他机器安装 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog，并使用 Pi 内置 package 更新机制持续升级。
 - 新增 PiCraft 原生 `permission` 扩展；默认放行项目内普通操作和明确的 Pi 内部读取，仅对工作区外路径及 `.env`、凭据、sessions 等敏感读取询问。Always 由父对话集中管理并与 Subagent 共享，提交后立即释放规则覆盖的 pending 请求。
 - Subagent 的 `/subagent` 与 `Alt+M` 配置面板支持按 agent 分别暂存模型与 thinking；Thinking `Default` 保留子 Pi 的 profile/model/project/global 默认行为，`Off` 与具体级别显式传给子进程。`/git commit` 改为专用 `GitCommit` Pi 进程，直接继承当前父 Pi 的模型与 thinking，不再复用 Subagent 配置。
 
 ### 架构/重构
 
-- 在仓库根目录增加 PiCraft manifest，以显式资源入口加载 `configs/global/.pi/agent/` 下的六个扩展及预留的 skills、prompts、themes；Pi 核心模块声明为 optional peer dependencies，避免把 Pi 运行时重复打包进 Git package。
+- 在仓库根目录增加 PiCraft manifest，以显式资源入口加载 `configs/global/.pi/agent/` 下的七个扩展及预留的 skills、prompts、themes；Pi 核心模块声明为 optional peer dependencies，避免把 Pi 运行时重复打包进 Git package。
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
 - Plan 与 subagent 解除双向协议耦合：Plan 只保留 Pi 中已经注册且已激活的普通 `subagent` 工具，不再解析或约束子代理的 Plan 专属 policy；subagent 也不再读取 Plan 状态。
 - 将 Pi 子进程执行器移动到扩展中立的 `shared/pi-process-runner.ts`；Subagent 通过 profile 适配层调用，Git 直接构造专用运行配置，双方不再依赖彼此的私有实现。

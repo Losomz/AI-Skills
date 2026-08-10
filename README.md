@@ -2,7 +2,7 @@
 
 个人 AI Agent 工作流、配置与模板仓库。
 
-PiCraft 为 Pi 提供 Plan、Permission、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `@losomz/picraft`。
+PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `@losomz/picraft`。
 
 ## 当前目录结构
 
@@ -21,6 +21,7 @@ AgentFramework/
 │   │       │   ├── blog/            # /blog 文件化日志工作流
 │   │       │   ├── git/             # /git 分层 Git 操作入口
 │   │       │   ├── init/            # /init 与 AGENTS.md 初始化模板
+│   │       │   ├── questionnaire/   # 主 Agent 主动意图澄清
 │   │       │   ├── permission/       # 原生工具调用审批
 │   │       │   ├── plan/            # /plan 计划模式
 │   │       │   └── subagent/        # 子代理扩展与内置 agents
@@ -50,7 +51,7 @@ pi install git:github.com/Losomz/AgentFramework
 pi list
 ```
 
-安装后重启 Pi。Pi 会把仓库 clone 到自己的全局 package 管理目录，并从中加载 Plan、Permission、Subagent、Git、Init 和 Blog：
+安装后重启 Pi。Pi 会把仓库 clone 到自己的全局 package 管理目录，并从中加载 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog：
 
 ```text
 ~/.pi/agent/git/github.com/Losomz/AgentFramework/
@@ -79,6 +80,10 @@ pi update git:github.com/Losomz/AgentFramework
 ```bash
 pi remove git:github.com/Losomz/AgentFramework
 ```
+
+#### 意图询问
+
+PiCraft 内置 `questionnaire` 工具。主 Agent 在已经检查代码、配置、文档和现有约定后，如果仍存在会实质影响结果的用户偏好或关键歧义，可以主动批量询问。TUI 支持逐题单选或多选、固定自由输入和最终 Review；RPC、JSON、Print 和独立 Subagent 不启用该工具，子 Agent 应把关键问题交回父对话。
 
 #### 工具授权
 
@@ -157,6 +162,7 @@ configs/global/.pi/agent/extensions/
 当前扩展：
 
 - `init/`：提供 `/init`，用基础说明和可选模板创建或更新目标项目的 `AGENTS.md`。
+- `questionnaire/`：提供模型主动调用的意图澄清工具，支持批量问题、单选、多选和自由输入。
 - `permission/`：提供项目边界与敏感文件审批，以及 `/permissions` 会话授权管理。
 - `plan/`：提供 `/plan` 计划模式，限制写工具并注入规划提示。
 - `subagent/`：提供子代理工具、`#AgentName` 快捷委派、per-agent 模型与 thinking 配置面板，以及内置 `General` / `Explore` / `Scout`。
