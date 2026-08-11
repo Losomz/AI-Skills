@@ -9,49 +9,51 @@ Pi 官方把配置分为全局配置和项目级配置：
 
 项目级配置会覆盖全局配置；`settings.json` 里的嵌套对象会合并。
 
-## PiCraft Git Package
+## PiCraft Package
 
-PiCraft 的 Pi 资源由仓库根目录 `package.json` 显式声明。日常安装和更新优先使用 Pi 的 Git package 管理，不再把扩展手工复制到全局目录：
+PiCraft 的 Pi 资源由 `packages/picraft/package.json` 声明并独立发布。仓库根 manifest 只为 Git package 指向同一份源码；公开版本优先使用 npm package 管理，不再把扩展手工复制到全局目录：
 
 ```bash
-pi install git:github.com/Losomz/AgentFramework
+pi install npm:@losomz/picraft
 pi list
 ```
 
-默认是用户级安装，Pi 会把 clone 管理在：
+默认是用户级安装，Pi 会把 package 管理在：
 
 ```text
-~/.pi/agent/git/github.com/Losomz/AgentFramework/
+~/.pi/agent/npm/
 ```
 
 更新全部 package 或只更新 PiCraft：
 
 ```bash
 pi update --extensions
-pi update git:github.com/Losomz/AgentFramework
+pi update npm:@losomz/picraft
 ```
 
 更新后重启 Pi，或者执行 `/reload`。卸载使用：
 
 ```bash
-pi remove git:github.com/Losomz/AgentFramework
+pi remove npm:@losomz/picraft
 ```
 
-未指定 Git tag、commit 或 branch 时，Pi 会跟踪远程默认分支。启动时发现本地 clone `HEAD` 落后于远程默认分支后会提示更新，但不会静默应用。
+使用 `pi install npm:@losomz/picraft@0.1.2` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。
+
+需要跟踪仓库主线或参与开发时，可改用 `pi install git:github.com/Losomz/AgentFramework`。npm 与 Git 是两个不同的 package 身份，不能同时启用；从 Git 来源迁移时先移除 Git package，再安装 npm package。
 
 Package 当前加载：
 
 ```text
-configs/global/.pi/agent/extensions/plan/index.ts
-configs/global/.pi/agent/extensions/questionnaire/index.ts
-configs/global/.pi/agent/extensions/subagent/index.ts
-configs/global/.pi/agent/extensions/git/index.ts
-configs/global/.pi/agent/extensions/init/index.ts
-configs/global/.pi/agent/extensions/blog/index.ts
-configs/global/.pi/agent/extensions/permission/index.ts
-configs/global/.pi/agent/skills/
-configs/global/.pi/agent/prompts/
-configs/global/.pi/agent/themes/
+packages/picraft/extensions/plan/index.ts
+packages/picraft/extensions/questionnaire/index.ts
+packages/picraft/extensions/subagent/index.ts
+packages/picraft/extensions/git/index.ts
+packages/picraft/extensions/init/index.ts
+packages/picraft/extensions/blog/index.ts
+packages/picraft/extensions/permission/index.ts
+packages/picraft/skills/
+packages/picraft/prompts/
+packages/picraft/themes/
 ```
 
 `auth.json`、`settings.json`、`models.json`、`keybindings.json`、`sessions/`、`subagent-models.json`、Orca 扩展和外部 CLI 不属于 package，每台机器独立管理。
@@ -74,38 +76,39 @@ Pi package 的管理目录与 `~/.pi/agent/extensions/` 相互独立。安装 pa
 
 首次迁移步骤：
 
-1. 执行 `pi install git:github.com/Losomz/AgentFramework`。
-2. 执行 `pi config`，禁用 `~/.pi/agent/extensions/` 中的 Plan、Subagent、Git、Init 和 Blog 入口，保留 package 入口。
+1. 执行 `pi install npm:@losomz/picraft`。
+2. 执行 `pi config`，禁用 `~/.pi/agent/extensions/` 中的 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 入口，保留 package 入口。
 3. 重启 Pi，确认 `/plan`、`/permissions`、`/subagent`、`/git`、`/init` 和 `/blog` 各只有一个入口。
-4. 确认功能正常后，备份或移除上述五个本地扩展目录。
+4. 确认功能正常后，备份或移除上述本地扩展目录。
 
-不要删除整个 `~/.pi/agent/extensions/`，以免影响 Orca 或其他本地扩展。后续同步流程也不能再次复制这五个目录，否则重复扩展会重新出现。
+不要删除整个 `~/.pi/agent/extensions/`，以免影响 Orca 或其他本地扩展。后续同步流程也不能再次复制这些目录，否则重复扩展会重新出现。
 
 ### 本地开发验证
 
-在仓库根目录运行：
+直接验证 npm 子包源码：
 
 ```bash
-pi --no-extensions --no-skills --no-prompt-templates --no-themes -e .
+pi --no-extensions --no-skills --no-prompt-templates --no-themes -e ./packages/picraft
 ```
 
-`--no-*` 参数会忽略 settings 和自动发现的同类资源，`-e .` 仍会显式加载当前仓库 package，适合在不干扰已安装版本的情况下验证修改。
+验证仓库根 Git package manifest 时将路径改为 `-e .`。`--no-*` 参数会忽略 settings 和自动发现的同类资源，显式 `-e` 资源仍会加载，适合在不干扰已安装版本的情况下验证修改。
 
 ## 本仓库路径约定
 
 ```text
 configs/global/   # 全局配置源
 configs/project/  # 项目级配置源
+packages/picraft/ # 独立 Pi npm package 与 Git package 共用源码
 ```
 
 旧文档或旧脚本里出现的 `configs/.pi/`、`configs/.opencode/` 是历史路径；当前主线应使用 `configs/global/` 和 `configs/project/`。
 
 ## 全局配置手工同步（备用）
 
-本仓库中 Pi 全局配置源目录是：
+本仓库中可手工映射的 PiCraft 资源源目录是：
 
 ```text
-configs/global/.pi/agent/
+packages/picraft/
 ├── extensions/
 ├── prompts/
 ├── skills/
@@ -115,10 +118,10 @@ configs/global/.pi/agent/
 仅在本地开发、迁移或应急回退时按被管理的文件或子目录逐项同步。手工同步版本不能与 PiCraft package 同时启用，也不要全量删除或覆盖整个 `~/.pi/agent/`。对应关系是：
 
 ```text
-configs/global/.pi/agent/extensions/ -> ~/.pi/agent/extensions/
-configs/global/.pi/agent/prompts/    -> ~/.pi/agent/prompts/
-configs/global/.pi/agent/skills/     -> ~/.pi/agent/skills/
-configs/global/.pi/agent/themes/     -> ~/.pi/agent/themes/
+packages/picraft/extensions/ -> ~/.pi/agent/extensions/
+packages/picraft/prompts/    -> ~/.pi/agent/prompts/
+packages/picraft/skills/     -> ~/.pi/agent/skills/
+packages/picraft/themes/     -> ~/.pi/agent/themes/
 ```
 
 `auth.json`、`sessions/` 等运行时数据保留在本机，不纳入模板同步。
@@ -141,29 +144,29 @@ Pi 官方可识别的常用全局文件还包括：
 - `keybindings.json`：全局快捷键
 - `models.json`：自定义 providers/models
 
-这些文件有实际内容时再加入 `configs/global/.pi/agent/`。
+这些是每台机器独立管理的用户配置，不加入 `packages/picraft/` npm package。
 
 ## Pi `/init` 扩展
 
 `/init` 扩展属于 Pi 全局扩展，源路径是：
 
 ```text
-configs/global/.pi/agent/extensions/init/
+packages/picraft/extensions/init/
 ```
 
 关键文件：
 
 ```text
-configs/global/.pi/agent/extensions/init/index.ts
-configs/global/.pi/agent/extensions/init/prompts/base.md
-configs/global/.pi/agent/extensions/init/templates/
+packages/picraft/extensions/init/index.ts
+packages/picraft/extensions/init/prompts/base.md
+packages/picraft/extensions/init/templates/
 ```
 
 `prompts/base.md` 是所有 `/init` 都会注入的基础说明。`templates/*.md` 是可选初始化模板，例如：
 
 ```text
-configs/global/.pi/agent/extensions/init/templates/cocos-noelle.md
-configs/global/.pi/agent/extensions/init/templates/godot_sumeru.md
+packages/picraft/extensions/init/templates/cocos-noelle.md
+packages/picraft/extensions/init/templates/godot_sumeru.md
 ```
 
 模板只是创建或更新目标项目 `AGENTS.md` 的素材和 checklist，不是最终输出；目标项目中的事实、命令、路径和框架规则仍必须在目标仓库内重新核验。

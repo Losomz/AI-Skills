@@ -6,14 +6,16 @@
 
 ### 功能变更
 
+- 为 `0.1.2` 将 PiCraft 改为 `packages/picraft/` 独立 npm 子包，提供只面向 Pi 的 package manifest、README 和扁平 `extensions/` 资源路径；综合仓库根继续维护 Codex、OpenCode 和通用 Agent 内容，但不再作为 npm 发布根目录。
+- 将 `@losomz/picraft` 准备为公开 npm Pi package 首发版本 `0.1.1`：采用 MIT 许可证、公开 scoped package 配置和 npm 文件白名单，并以 `pi install npm:@losomz/picraft` 作为公开安装入口；Git package 继续作为独立的主线开发来源。
 - 新增 `questionnaire` 主动意图澄清扩展；主 Agent 可在关键需求无法从仓库事实推导时批量询问，支持逐题单选或多选、固定自由输入、多问题 Review 和 TUI 富交互，RPC、JSON、Print 与独立 Subagent 自动停用。
-- 将仓库正式封装为 `private: true` 的 Git Pi package `@losomz/picraft`，通过 `pi install git:github.com/Losomz/AgentFramework` 即可在其他机器安装 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog，并使用 Pi 内置 package 更新机制持续升级。
+- 将仓库正式封装为 Pi package `@losomz/picraft`，可在其他机器安装 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog，并使用 Pi 内置 package 更新机制持续升级。
 - 新增 PiCraft 原生 `permission` 扩展；默认放行项目内普通操作和明确的 Pi 内部读取，仅对工作区外路径及 `.env`、凭据、sessions 等敏感读取询问。Always 由父对话集中管理并与 Subagent 共享，提交后立即释放规则覆盖的 pending 请求。
 - Subagent 的 `/subagent` 与 `Alt+M` 配置面板支持按 agent 分别暂存模型与 thinking；Thinking `Default` 保留子 Pi 的 profile/model/project/global 默认行为，`Off` 与具体级别显式传给子进程。`/git commit` 改为专用 `GitCommit` Pi 进程，直接继承当前父 Pi 的模型与 thinking，不再复用 Subagent 配置。
 
 ### 架构/重构
 
-- 在仓库根目录增加 PiCraft manifest，以显式资源入口加载 `configs/global/.pi/agent/` 下的七个扩展及预留的 skills、prompts、themes；Pi 核心模块声明为 optional peer dependencies，避免把 Pi 运行时重复打包进 Git package。
+- 仓库根 manifest 恢复为 `private: true` 的综合仓库和 Git package 入口，显式加载 `packages/picraft/` 下的七个扩展及预留的 skills、prompts、themes；独立子包持有 `@losomz/picraft` npm 身份和 optional Pi peer dependencies，避免根 README 与非 Pi 配置进入 npm 展示面。
 - Plan 扩展将 `/plan`、`Alt+I`、`--plan`、Execute 与会话恢复收敛到统一状态入口，并精简为入口、状态、上下文和工具辅助四个职责模块；运行中切换改为在 `agent_settled` 后应用最终 pending 目标，避免同一轮混用 Plan 与执行状态。
 - Plan 与 subagent 解除双向协议耦合：Plan 只保留 Pi 中已经注册且已激活的普通 `subagent` 工具，不再解析或约束子代理的 Plan 专属 policy；subagent 也不再读取 Plan 状态。
 - 将 Pi 子进程执行器移动到扩展中立的 `shared/pi-process-runner.ts`；Subagent 通过 profile 适配层调用，Git 直接构造专用运行配置，双方不再依赖彼此的私有实现。
@@ -40,7 +42,8 @@
 
 ### 风险与迁移说明
 
-- Pi package 不会覆盖 `~/.pi/agent/extensions/` 中的同名手工扩展；首次安装 PiCraft 时必须通过 `pi config` 禁用旧的 Plan、Subagent、Git、Init 和 Blog 入口，验证 package 正常后再清理这五个旧目录，且不能删除 Orca 等其他扩展。
+- npm 与 Git 来源具有不同 package 身份，不能同时启用；从 Git package 迁移到 npm package 时必须先移除原来源。`0.1.2` 起 npm tarball 由 `packages/picraft/` 生成，只包含声明的 Pi 运行资源和 Pi-only README，不分发 Codex、OpenCode、Orca、测试、凭据或本机运行状态。
+- Pi package 不会覆盖 `~/.pi/agent/extensions/` 中的同名手工扩展；首次安装 PiCraft 时必须通过 `pi config` 禁用旧的 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 入口，验证 package 正常后再清理这些目录，且不能删除 Orca 等其他扩展。
 - Plan 的命令 denylist 仅是主 Agent 的辅助防护而非安全沙箱；已激活的可写/full-access subagent 仍可能修改工作区，需要通过 subagent 自身能力配置或禁用该工具进行隔离。
 - Plan 扩展最低要求 Pi 0.80.4，以使用稳定的 `agent_settled` 生命周期事件。
 - `/git commit` 现在只接受可选的核心要求，不再解析 agent 参数，Git 启动链也不再读取 `subagent-models.json`；子 Pi 仍会正常加载全局扩展和 Provider 配置，并在真实 `ctx.cwd` 中提交和推送。父进程临时 runtime credential 无法跨进程继承，命令会在启动前给出明确错误。`subagent-models.json` v1 文件仍由 Subagent 兼容读取，并在下一次 `/subagent` 保存时升级为 v2。更新 PiCraft package 或手工同步全局扩展后需执行 `/reload`。

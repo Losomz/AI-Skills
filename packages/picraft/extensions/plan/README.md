@@ -64,7 +64,7 @@ This is a best-effort planning guard, not a security sandbox. The rule set is de
 ## Test
 
 ```powershell
-node --test configs/global/.pi/agent/extensions/plan/tests/plan.test.ts
+node --test packages/picraft/extensions/plan/tests/plan.test.ts
 ```
 
 The focused suite covers unified entry behavior, pending/settled transitions, run-mode locking, inactive notices, Execute follow-up, startup/branch restoration, context cleanup, tool restoration, and static Subagent decoupling.

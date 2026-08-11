@@ -1,10 +1,11 @@
 {
-  "name": "@losomz/picraft",
-  "version": "0.2.0",
+  "name": "agent-framework",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "An opinionated Pi workflow suite for planning, intent clarification, permissions, subagents, Git automation, project initialization, and publishing.",
-  "license": "UNLICENSED",
+  "description": "Source repository for PiCraft and related AI agent configurations.",
+  "license": "MIT",
+  "author": "Losomz",
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -15,8 +16,12 @@
     "type": "git",
     "url": "git+https://github.com/Losomz/AgentFramework.git"
   },
+  "homepage": "https://github.com/Losomz/AgentFramework#readme",
+  "bugs": {
+    "url": "https://github.com/Losomz/AgentFramework/issues"
+  },
   "scripts": {
-    "test": "node --test configs/global/.pi/agent/extensions/plan/tests/plan.test.ts configs/global/.pi/agent/extensions/git/tests/commit.test.ts configs/global/.pi/agent/extensions/subagent/tests/model-catalog.test.ts configs/global/.pi/agent/extensions/subagent/tests/model-overrides.test.ts configs/global/.pi/agent/extensions/subagent/tests/process-args.test.ts configs/global/.pi/agent/extensions/subagent/tests/runner.test.ts configs/global/.pi/agent/extensions/subagent/tests/shortcut.test.ts"
+    "test": "npm --prefix packages/picraft test"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
@@ -44,22 +49,22 @@
   },
   "pi": {
     "extensions": [
-      "./configs/global/.pi/agent/extensions/plan/index.ts",
-      "./configs/global/.pi/agent/extensions/questionnaire/index.ts",
-      "./configs/global/.pi/agent/extensions/subagent/index.ts",
-      "./configs/global/.pi/agent/extensions/git/index.ts",
-      "./configs/global/.pi/agent/extensions/init/index.ts",
-      "./configs/global/.pi/agent/extensions/blog/index.ts",
-      "./configs/global/.pi/agent/extensions/permission/index.ts"
+      "./packages/picraft/extensions/plan/index.ts",
+      "./packages/picraft/extensions/questionnaire/index.ts",
+      "./packages/picraft/extensions/subagent/index.ts",
+      "./packages/picraft/extensions/git/index.ts",
+      "./packages/picraft/extensions/init/index.ts",
+      "./packages/picraft/extensions/blog/index.ts",
+      "./packages/picraft/extensions/permission/index.ts"
     ],
     "skills": [
-      "./configs/global/.pi/agent/skills"
+      "./packages/picraft/skills"
     ],
     "prompts": [
-      "./configs/global/.pi/agent/prompts"
+      "./packages/picraft/prompts"
     ],
     "themes": [
-      "./configs/global/.pi/agent/themes"
+      "./packages/picraft/themes"
     ]
   }
 }

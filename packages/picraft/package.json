@@ -1,0 +1,87 @@
+{
+  "name": "@losomz/picraft",
+  "version": "0.1.2",
+  "type": "module",
+  "description": "An opinionated Pi workflow suite for planning, intent clarification, permissions, subagents, Git automation, project initialization, and publishing.",
+  "license": "MIT",
+  "author": "Losomz",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "coding-agent",
+    "agent-workflow"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Losomz/AgentFramework.git",
+    "directory": "packages/picraft"
+  },
+  "homepage": "https://github.com/Losomz/AgentFramework/tree/main/packages/picraft#readme",
+  "bugs": {
+    "url": "https://github.com/Losomz/AgentFramework/issues"
+  },
+  "files": [
+    "extensions/plan",
+    "extensions/questionnaire",
+    "extensions/subagent",
+    "extensions/git",
+    "extensions/init",
+    "extensions/blog",
+    "extensions/permission",
+    "extensions/shared",
+    "skills",
+    "prompts",
+    "themes"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node --test extensions/plan/tests/plan.test.ts extensions/git/tests/commit.test.ts extensions/subagent/tests/model-catalog.test.ts extensions/subagent/tests/model-overrides.test.ts extensions/subagent/tests/process-args.test.ts extensions/subagent/tests/runner.test.ts extensions/subagent/tests/shortcut.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/plan/index.ts",
+      "./extensions/questionnaire/index.ts",
+      "./extensions/subagent/index.ts",
+      "./extensions/git/index.ts",
+      "./extensions/init/index.ts",
+      "./extensions/blog/index.ts",
+      "./extensions/permission/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  }
+}

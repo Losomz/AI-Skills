@@ -116,7 +116,7 @@ Bundled agents live in:
 <subagent extension directory>/agents/*.md
 ```
 
-For the global template in this repository, that becomes `~/.pi/agent/extensions/subagent/agents/*.md` after sync. The code discovers this directory relative to `index.ts`; it does not hardcode the repository `configs/...` path and does not use `~/.pi/agent/agents/` for bundled subagents.
+The npm source lives at `packages/picraft/extensions/subagent/agents/*.md`; a manual global mapping would place it at `~/.pi/agent/extensions/subagent/agents/*.md`. The code discovers this directory relative to `index.ts` and does not use `~/.pi/agent/agents/` for bundled subagents.
 
 To add a new agent, add another markdown file with frontmatter:
 
