@@ -31,6 +31,7 @@
 - 修复 `/git commit` 启动前依赖 `General` profile、在 package 迁移期可能报“未找到 General profile”的问题；现在直接启动工具限制为 `read,bash` 的专用 `GitCommit` Pi 进程，命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
 - 修复 Windows 下 Pi 子进程通过 shell 传递任务参数的转义风险，并补齐 AbortSignal 的强制终止回退与监听器、定时器、临时文件清理。
 - 修复 linked worktree Git 管理目录、Pi 插件/package、附件和精确 `pi-bash` 输出被误判为外部路径，以及同一地址 Always 后重复询问的问题。
+- 为 `0.1.3` 修复 Permission 在长命令或长路径授权期间因 `Working...` 动画持续重排无界内容而拖慢整个 TUI 的问题；授权页缓存稳定帧，并对目标与会话授权范围采用保留首尾的有界展示，静态项目/Git 路径策略也按工作目录复用。
 
 ### 测试/质量
 

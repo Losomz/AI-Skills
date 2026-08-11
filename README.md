@@ -79,7 +79,7 @@ pi update npm:@losomz/picraft
 pi remove npm:@losomz/picraft
 ```
 
-固定版本安装使用 `pi install npm:@losomz/picraft@0.1.2`。固定版本不会被 package 更新命令升级；需要升级时安装新的显式版本。
+固定版本安装使用 `pi install npm:@losomz/picraft@0.1.3`。固定版本不会被 package 更新命令升级；需要升级时安装新的显式版本。
 
 #### Git 来源
 

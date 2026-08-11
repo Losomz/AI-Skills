@@ -28,7 +28,7 @@ PiCraft requires Pi 0.80.4 or newer.
 pi update npm:@losomz/picraft
 ```
 
-Pinned installs such as `npm:@losomz/picraft@0.1.2` do not update automatically. Install a newer explicit version to move a pinned package.
+Pinned installs such as `npm:@losomz/picraft@0.1.3` do not update automatically. Install a newer explicit version to move a pinned package.
 
 ## Uninstall
 

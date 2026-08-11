@@ -30,6 +30,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		(sessionId) => authority.refreshSnapshot(sessionId),
 	);
 	const childProcess = isSubagentProcess();
+	const policyByCwd = new Map<string, ReturnType<typeof buildPermissionPathPolicy>>();
 
 	if (!childProcess) authority.configureSnapshotStore(new PermissionSnapshotStore(forwardingRoot));
 
@@ -54,11 +55,22 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		const localSessionId = currentSessionId(ctx);
 		const agentName = subagentName();
 		const toolCall = { toolName: event.toolName, input: event.input as Record<string, unknown> };
-		const localPolicy = buildPermissionPathPolicy(ctx.cwd, {
-			agentDir: getAgentDir(),
-			packageDir: getPackageDir(),
-			sessionTrustedFiles: authority.trustedFiles(localSessionId),
-		});
+		const policyKey = process.platform === "win32" ? ctx.cwd.toLowerCase() : ctx.cwd;
+		let basePolicy = policyByCwd.get(policyKey);
+		if (!basePolicy) {
+			basePolicy = buildPermissionPathPolicy(ctx.cwd, {
+				agentDir: getAgentDir(),
+				packageDir: getPackageDir(),
+			});
+			policyByCwd.set(policyKey, basePolicy);
+		}
+		const sessionTrustedFiles = authority.trustedFiles(localSessionId);
+		const localPolicy = sessionTrustedFiles.length === 0
+			? basePolicy
+			: {
+				...basePolicy,
+				trustedReadFiles: [...(basePolicy.trustedReadFiles ?? []), ...sessionTrustedFiles],
+			};
 		const request = collectPermissionRequest(toolCall, ctx.cwd, localPolicy, agentName);
 		if (!request) return undefined;
 
@@ -152,6 +164,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", (_event, ctx) => {
 		forwardingServer.stop();
 		authority.clearSession(currentSessionId(ctx));
+		policyByCwd.clear();
 		releasePermissionExtensionRegistration();
 	});
 }

@@ -66,6 +66,9 @@ class PermissionPrompt implements Component {
 	private state = createPermissionPromptState();
 	private readonly onAbort = () => this.finish({ kind: "reject" });
 	private finished = false;
+	private cachedWidth: number | undefined;
+	private cachedStateKey: string | undefined;
+	private cachedLines: string[] | undefined;
 
 	constructor(
 		private readonly theme: Theme,
@@ -83,13 +86,25 @@ class PermissionPrompt implements Component {
 		this.signal?.removeEventListener("abort", this.onAbort);
 	}
 
-	invalidate(): void {}
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedStateKey = undefined;
+		this.cachedLines = undefined;
+	}
 
 	render(width: number): string[] {
+		const stateKey = `${this.state.stage}\0${this.state.selected}\0${this.state.feedback}`;
+		if (this.cachedLines && this.cachedWidth === width && this.cachedStateKey === stateKey) {
+			return this.cachedLines;
+		}
+
 		const contentWidth = panelContentWidth(width);
 		const page = permissionPageModel(this.presentation, this.state, contentWidth);
-		const lines = page.map((line) => this.renderLine(line));
-		return fitToPanel(lines, width, this.theme);
+		const lines = fitToPanel(page, width, this.theme, (line) => this.renderLine(line));
+		this.cachedWidth = width;
+		this.cachedStateKey = stateKey;
+		this.cachedLines = lines;
+		return lines;
 	}
 
 	handleInput(data: string): void {
@@ -162,6 +177,7 @@ class PermissionPrompt implements Component {
 			return;
 		}
 		this.state = result.state;
+		this.invalidate();
 		this.requestRender();
 	}
 
@@ -202,7 +218,15 @@ function panelContentWidth(width: number): number {
 	return Math.max(0, width - (width >= 2 ? 2 : 1));
 }
 
-function fitToPanel(lines: string[], width: number, theme: Theme): string[] {
+const MAX_TARGET_LINES = 6;
+const MAX_SCOPE_LINES = 3;
+
+function fitToPanel(
+	lines: PermissionPageLine[],
+	width: number,
+	theme: Theme,
+	renderLine: (line: PermissionPageLine) => string,
+): string[] {
 	if (width <= 0) return [];
 	const border = theme.fg("warning", "│");
 	const prefix = width >= 2 ? `${border} ` : border;
@@ -210,7 +234,26 @@ function fitToPanel(lines: string[], width: number, theme: Theme): string[] {
 	if (contentWidth === 0) return lines.map(() => prefix);
 
 	return lines.flatMap((line) => {
-		const wrapped = line === "" ? [""] : wrapTextWithAnsi(line, contentWidth);
-		return wrapped.map((item) => `${prefix}${truncateToWidth(item, contentWidth)}`);
+		const rendered = renderLine(line);
+		const wrapped = rendered === "" ? [""] : wrapTextWithAnsi(rendered, contentWidth);
+		const maxLines = line.kind === "target"
+			? MAX_TARGET_LINES
+			: line.kind === "scope"
+				? MAX_SCOPE_LINES
+				: undefined;
+		const visible = maxLines === undefined
+			? wrapped
+			: compactWrappedLines(wrapped, maxLines, contentWidth, theme);
+		return visible.map((item) => `${prefix}${truncateToWidth(item, contentWidth)}`);
 	});
+}
+
+function compactWrappedLines(lines: string[], maxLines: number, width: number, theme: Theme): string[] {
+	if (lines.length <= maxLines || maxLines < 3) return lines.slice(0, maxLines);
+
+	const headCount = Math.ceil((maxLines - 1) / 2);
+	const tailCount = maxLines - headCount - 1;
+	const omitted = lines.length - headCount - tailCount;
+	const marker = truncateToWidth(theme.fg("muted", `... ${omitted} wrapped lines omitted ...`), width);
+	return [...lines.slice(0, headCount), marker, ...lines.slice(-tailCount)];
 }
