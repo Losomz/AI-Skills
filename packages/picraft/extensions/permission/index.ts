@@ -9,7 +9,12 @@ import {
 	permissionRequestId,
 	releasePermissionExtensionRegistration,
 } from "./authority.ts";
-import { collectPermissionRequest, requirementAccess, type PermissionRequest } from "./core.ts";
+import { buildPermissionPathPolicy, extractSubmittedTempFiles } from "./policy.ts";
+import {
+	evaluatePermissionPolicy,
+	requirementAccess,
+	type PermissionRequest,
+} from "./core.ts";
 import {
 	loadParentGrantView,
 	permissionForwardingRoot,
@@ -17,7 +22,6 @@ import {
 	PermissionSnapshotStore,
 	requestParentPermission,
 } from "./forwarding.ts";
-import { buildPermissionPathPolicy, extractSubmittedTempFiles } from "./policy.ts";
 import { getOutstandingRequirements, type PermissionPromptDecision } from "./presentation.ts";
 import { requestPermissionDecision } from "./ui.ts";
 
@@ -71,27 +75,27 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 				...basePolicy,
 				trustedReadFiles: [...(basePolicy.trustedReadFiles ?? []), ...sessionTrustedFiles],
 			};
-		const request = collectPermissionRequest(toolCall, ctx.cwd, localPolicy, agentName);
-		if (!request) return undefined;
+		const policyDecision = evaluatePermissionPolicy(toolCall, ctx.cwd, localPolicy, agentName);
+		if (policyDecision.effect === "deny") {
+			return { block: true, reason: `Permission policy denied: ${policyDecision.reason}` };
+		}
+		if (policyDecision.effect === "allow") return undefined;
+		const request = policyDecision.request;
 
 		let decision: PermissionPromptDecision | undefined;
 		if (childProcess) {
 			const parentId = parentSessionId();
 			const firstView = parentId ? loadParentGrantView(forwardingRoot, parentId) : undefined;
 			const isCovered = (view: NonNullable<typeof firstView>): boolean => {
-				const inheritedRequest = collectPermissionRequest(
-					toolCall,
-					ctx.cwd,
-					{
-						...localPolicy,
-						trustedReadFiles: [
-							...(localPolicy.trustedReadFiles ?? []),
-							...view.trustedReadFiles,
-						],
-					},
-					agentName,
-				);
-				return !inheritedRequest || getOutstandingRequirements(inheritedRequest, view.grants).length === 0;
+				const inheritedRequest = evaluatePermissionPolicy(toolCall, ctx.cwd, {
+					...localPolicy,
+					trustedReadFiles: [
+						...(localPolicy.trustedReadFiles ?? []),
+						...view.trustedReadFiles,
+					],
+				}, agentName);
+				return inheritedRequest.effect === "allow" ||
+					(inheritedRequest.effect === "ask" && getOutstandingRequirements(inheritedRequest.request, view.grants).length === 0);
 			};
 			if (firstView && isCovered(firstView)) {
 				const confirmedView = parentId ? loadParentGrantView(forwardingRoot, parentId) : undefined;

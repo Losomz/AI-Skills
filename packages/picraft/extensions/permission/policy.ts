@@ -18,7 +18,7 @@ export interface PermissionRuntimePaths {
 export function buildPermissionPathPolicy(cwd: string, runtime: PermissionRuntimePaths): PermissionPathPolicy {
 	const agentDir = canonicalize(runtime.agentDir);
 	const packageDir = canonicalize(runtime.packageDir);
-	const sensitiveReadRoots = [
+	const runtimeReadRoots = [
 		join(agentDir, "sessions"),
 		join(agentDir, "logs"),
 		join(agentDir, "extensions", "pi-permission-system", "logs"),
@@ -30,14 +30,14 @@ export function buildPermissionPathPolicy(cwd: string, runtime: PermissionRuntim
 		trustedReadRoots: uniquePaths([
 			packageDir,
 			...AGENT_RESOURCE_DIRS.map((name) => join(agentDir, name)),
-			...sensitiveReadRoots,
+			...runtimeReadRoots,
 		]),
 		trustedReadFiles: uniquePaths([
 			...AGENT_READABLE_FILES.map((name) => join(agentDir, name)),
 			...sensitiveReadFiles,
 			...(runtime.sessionTrustedFiles ?? []),
 		]),
-		sensitiveReadRoots: uniquePaths(sensitiveReadRoots),
+		sensitiveReadRoots: [],
 		sensitiveReadFiles: uniquePaths(sensitiveReadFiles),
 	};
 }

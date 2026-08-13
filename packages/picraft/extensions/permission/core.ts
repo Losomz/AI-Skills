@@ -4,6 +4,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type PermissionName = "external_directory" | "read";
+export type PermissionEffect = "allow" | "ask" | "deny";
 
 export interface PermissionRequirement {
 	permission: PermissionName;
@@ -25,6 +26,11 @@ export interface ToolCallLike {
 	toolName: string;
 	input: Record<string, unknown>;
 }
+
+export type PermissionPolicyDecision =
+	| { effect: "allow" }
+	| { effect: "ask"; request: PermissionRequest }
+	| { effect: "deny"; reason: string };
 
 export interface PermissionPathPolicy {
 	projectRoots: readonly string[];
@@ -55,7 +61,63 @@ const SHELL_FILE_COMMANDS = new Set([
 	"touch",
 ]);
 const SHELL_SEPARATORS = new Set([";", "&&", "||", "|"]);
-const REDIRECTIONS = new Set([">", ">>", "<", "2>", "2>>"]);
+const REDIRECTIONS = new Set([">", ">>", "<", "1>", "1>>", "2>", "2>>", "2>&1", ">&1", "&>"]);
+const REDIRECTIONS_WITHOUT_TARGET = new Set(["2>&1", ">&1"]);
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9]|lpt[1-9])(?:[.:].*)?$/i;
+
+export function isWindowsReservedDevicePath(value: string): boolean {
+	if (process.platform !== "win32") return false;
+	let normalized = normalizePathForPolicy(value).trim().replace(/^@/, "").replace(/[/]+$/, "");
+	if (!normalized || normalized.toLowerCase() === "/dev/null") return false;
+	const name = normalized.split("/").at(-1)?.replace(/[ .]+$/, "") ?? "";
+	return WINDOWS_DEVICE_NAME.test(name);
+}
+
+export function isBashNullDevicePath(value: string): boolean {
+	return normalizePathForPolicy(value).trim().toLowerCase() === "/dev/null";
+}
+
+function isForbiddenBashTarget(value: string): boolean {
+	return value.trim().toLowerCase() === "$null" || isWindowsReservedDevicePath(value);
+}
+
+function findForbiddenBashRedirection(command: string): string | undefined {
+	const tokens = tokenizeShell(command);
+	for (let index = 0; index < tokens.length; index++) {
+		const token = tokens[index];
+		if (!REDIRECTIONS.has(token) || REDIRECTIONS_WITHOUT_TARGET.has(token)) continue;
+		const target = tokens[++index];
+		if (target && isForbiddenBashTarget(unquote(target))) return unquote(target);
+	}
+	return undefined;
+}
+
+export function findToolPolicyViolation(event: ToolCallLike): string | undefined {
+	if (event.toolName === "bash" && typeof event.input.command === "string") {
+		const target = findForbiddenBashRedirection(event.input.command);
+		if (target) return `Forbidden Bash redirection target: ${target}`;
+	}
+
+	const intents = extractToolPathIntents(event, "");
+	for (const intent of intents) {
+		if (isWindowsReservedDevicePath(intent.path)) {
+			return `Forbidden Windows device target: ${intent.path}`;
+		}
+	}
+	return undefined;
+}
+
+export function evaluatePermissionPolicy(
+	event: ToolCallLike,
+	cwd: string,
+	policyOrRoots: PermissionPathPolicy | readonly string[],
+	agentName?: string,
+): PermissionPolicyDecision {
+	const violation = findToolPolicyViolation(event);
+	if (violation) return { effect: "deny", reason: violation };
+	const request = collectPermissionRequest(event, cwd, policyOrRoots, agentName);
+	return request ? { effect: "ask", request } : { effect: "allow" };
+}
 
 export function wildcardMatch(pattern: string, value: string, caseInsensitive = process.platform === "win32"): boolean {
 	let source = "";
@@ -180,7 +242,9 @@ export function collectPermissionRequest(
 	const policy: PermissionPathPolicy = "projectRoots" in policyOrRoots
 		? policyOrRoots
 		: { projectRoots: policyOrRoots };
-	const paths = extractToolPathIntents(event, cwd);
+	const paths = extractToolPathIntents(event, cwd).filter(
+		(intent) => !(event.toolName === "bash" && isBashNullDevicePath(intent.path)),
+	);
 	const requirements: PermissionRequirement[] = [];
 
 	for (const intent of paths) {
@@ -281,6 +345,7 @@ function shellSegmentIntents(tokens: string[]): ToolPathIntent[] {
 			commandTokens.push(token);
 			continue;
 		}
+		if (REDIRECTIONS_WITHOUT_TARGET.has(token)) continue;
 		const target = tokens[++index];
 		if (!target) continue;
 		redirects.push({ path: unquote(target), access: token === "<" ? "read" : "write" });
@@ -312,7 +377,7 @@ function shellSegmentIntents(tokens: string[]): ToolPathIntent[] {
 }
 
 function tokenizeShell(command: string): string[] {
-	return command.match(/"(?:\\.|[^"\\])*"|'[^']*'|&&|\|\||2>>|2>|>>|[;|<>]|[^\s;|<>]+/g) ?? [];
+	return command.match(/"(?:\\.|[^"\\])*"|'[^']*'|2>>|2>&1|2>|1>>|1>|>&1|&>|>>|&&|\|\||[;|<>]|[^\s;|<>]+/g) ?? [];
 }
 
 function unquote(value: string): string {
