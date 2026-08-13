@@ -1,6 +1,6 @@
-import { existsSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type PermissionName = "external_directory" | "read";
@@ -64,6 +64,22 @@ const SHELL_SEPARATORS = new Set([";", "&&", "||", "|"]);
 const REDIRECTIONS = new Set([">", ">>", "<", "1>", "1>>", "2>", "2>>", "2>&1", ">&1", "&>"]);
 const REDIRECTIONS_WITHOUT_TARGET = new Set(["2>&1", ">&1"]);
 const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9]|lpt[1-9])(?:[.:].*)?$/i;
+const EXTERNAL_READ_PACKAGE_ROOT_MARKERS = [
+	"package.json",
+	"pyproject.toml",
+	"Cargo.toml",
+	"go.mod",
+	"pom.xml",
+	"settings.gradle",
+	"settings.gradle.kts",
+] as const;
+const EXTERNAL_READ_PROJECT_ROOT_MARKERS = ["project.godot"] as const;
+const EXTERNAL_READ_COMPOUND_PROJECT_ROOT_MARKERS = [
+	["Packages", "manifest.json"],
+	["ProjectSettings", "ProjectVersion.txt"],
+	["Editor", "Unity.exe"],
+	["Engine", "Build", "Build.version"],
+] as const;
 
 export function isWindowsReservedDevicePath(value: string): boolean {
 	if (process.platform !== "win32") return false;
@@ -233,6 +249,22 @@ export function isSensitiveEnvPath(target: string): boolean {
 	return name !== ".env.example" && (name === ".env" || name.startsWith(".env."));
 }
 
+export function findExternalReadGrantRoot(target: string): string | undefined {
+	const resolvedTarget = canonicalize(target);
+	let cursor = isDirectory(resolvedTarget) ? resolvedTarget : dirname(resolvedTarget);
+	let packageRoot: string | undefined;
+
+	while (true) {
+		if (isBroadExternalGrantRoot(cursor)) return packageRoot;
+		const marker = externalReadRootMarker(cursor);
+		if (marker === "project") return cursor;
+		if (marker === "package" && !packageRoot) packageRoot = cursor;
+		const parent = dirname(cursor);
+		if (parent === cursor) return packageRoot;
+		cursor = parent;
+	}
+}
+
 export function collectPermissionRequest(
 	event: ToolCallLike,
 	cwd: string,
@@ -255,11 +287,12 @@ export function collectPermissionRequest(
 			(isInsideRoots(target, policy.trustedReadRoots ?? []) || isExactPath(target, policy.trustedReadFiles ?? []));
 
 		if (!isInsideRoots(target, policy.projectRoots) && !trustedRead) {
+			const grantRoot = intent.access === "read" ? findExternalReadGrantRoot(target) : undefined;
 			requirements.push({
 				permission: "external_directory",
 				access: intent.access,
 				pattern: policyPath,
-				alwaysPattern: `${normalizePathForPolicy(dirname(target))}/*`,
+				alwaysPattern: `${normalizePathForPolicy(grantRoot ?? dirname(target))}/*`,
 				reason: `Access outside the project: ${policyPath}`,
 			});
 		}
@@ -403,6 +436,66 @@ function normalizeToolPathInput(value: string): string {
 function isExactPath(target: string, candidates: readonly string[]): boolean {
 	const comparableTarget = comparablePath(canonicalize(target));
 	return candidates.some((candidate) => comparablePath(canonicalize(candidate)) === comparableTarget);
+}
+
+function externalReadRootMarker(directory: string): "project" | "package" | undefined {
+	if (
+		isFileOrDirectory(join(directory, ".git")) ||
+		EXTERNAL_READ_PROJECT_ROOT_MARKERS.some((marker) => isFile(join(directory, marker))) ||
+		EXTERNAL_READ_COMPOUND_PROJECT_ROOT_MARKERS.some((marker) => isFile(join(directory, ...marker)))
+	) {
+		return "project";
+	}
+	return EXTERNAL_READ_PACKAGE_ROOT_MARKERS.some((marker) => isFile(join(directory, marker)))
+		? "package"
+		: undefined;
+}
+
+function isFile(target: string): boolean {
+	try {
+		return statSync(target).isFile();
+	} catch {
+		return false;
+	}
+}
+
+function isFileOrDirectory(target: string): boolean {
+	try {
+		const stat = statSync(target);
+		return stat.isFile() || stat.isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+function isDirectory(target: string): boolean {
+	try {
+		return statSync(target).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+function isBroadExternalGrantRoot(directory: string): boolean {
+	const resolved = canonicalize(directory);
+	if (dirname(resolved) === resolved) return true;
+
+	const broadRoots = [
+		homedir(),
+		tmpdir(),
+		process.env.TEMP,
+		process.env.TMP,
+		process.env.PROGRAMDATA,
+		process.env.ProgramFiles,
+		process.env["ProgramFiles(x86)"],
+	].filter((item): item is string => Boolean(item?.trim()));
+	if (broadRoots.some((root) => comparablePath(canonicalize(root)) === comparablePath(resolved))) return true;
+
+	const normalized = normalizePathForPolicy(resolved).replace(/\/$/, "");
+	return /^[a-z]:\/users\/[^/]+(?:\/appdata(?:\/(?:local|locallow|roaming)(?:\/temp)?)?)?$/i.test(normalized) ||
+		/^[a-z]:\/(?:programdata|program files(?: \(x86\))?|windows)$/i.test(normalized) ||
+		/^\/(?:home|users)\/[^/]+$/i.test(normalized) ||
+		normalized === "/tmp" || normalized === "/var/tmp";
 }
 
 function comparablePath(value: string): string {

@@ -99,7 +99,7 @@ PiCraft 内置 `questionnaire` 工具。主 Agent 在已经检查代码、配置
 
 #### 工具授权
 
-PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。策略采用 `allow / ask / deny` 三态：项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源以及普通 sessions/logs 默认允许读取；访问其他外部路径，或读取 `.env`、`auth.json`、`models.json` 时询问。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。修改 Pi 安装文件仍按外部写入处理。
+PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。策略采用 `allow / ask / deny` 三态：项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源以及普通 sessions/logs 默认允许读取；访问其他外部路径，或读取 `.env`、`auth.json`、`models.json` 时询问。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍保持直接父目录范围。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。修改 Pi 安装文件仍按外部写入处理。
 
 审批提供 `Allow once / Allow always / Reject`。Always 只属于当前父对话并区分读写作用域；Subagent 会直接复用仍然有效的父授权，未匹配的请求才转交父 authority。授权提交后会释放同一规则覆盖的 pending 请求，`/permissions` 可查看或撤销；无 UI 或父 authority 不可用时默认拒绝。权限审批是工具调用策略层，不是操作系统沙箱。
 

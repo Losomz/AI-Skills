@@ -1,6 +1,6 @@
 {
   "name": "@losomz/picraft",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "An opinionated Pi workflow suite for planning, intent clarification, permissions, subagents, Git automation, project initialization, and publishing.",
   "license": "MIT",
