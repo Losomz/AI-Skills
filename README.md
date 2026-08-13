@@ -55,6 +55,8 @@ pi list
 
 PiCraft 当前要求 Pi 0.80.4 或更高版本。Pi package extension 会以当前用户权限执行并可访问系统资源；内置 Permission 是工具调用审批层，不是操作系统沙箱，安装前应先审查源码。
 
+发布或更新 npm 包的 PowerShell 流程见 [`docs/npm-publish.md`](docs/npm-publish.md)。
+
 后续更新全部 package：
 
 ```bash
