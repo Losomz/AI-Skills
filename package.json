@@ -23,6 +23,9 @@
   "scripts": {
     "test": "npm --prefix packages/picraft test"
   },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
@@ -55,7 +58,8 @@
       "./packages/picraft/extensions/git/index.ts",
       "./packages/picraft/extensions/init/index.ts",
       "./packages/picraft/extensions/blog/index.ts",
-      "./packages/picraft/extensions/permission/index.ts"
+      "./packages/picraft/extensions/permission/index.ts",
+      "./packages/picraft/extensions/mcp/index.ts"
     ],
     "skills": [
       "./packages/picraft/skills"

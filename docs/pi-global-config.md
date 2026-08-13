@@ -51,6 +51,7 @@ packages/picraft/extensions/git/index.ts
 packages/picraft/extensions/init/index.ts
 packages/picraft/extensions/blog/index.ts
 packages/picraft/extensions/permission/index.ts
+packages/picraft/extensions/mcp/index.ts
 packages/picraft/skills/
 packages/picraft/prompts/
 packages/picraft/themes/
@@ -63,6 +64,30 @@ packages/picraft/themes/
 PiCraft 注册 `questionnaire` 工具，让主 Agent 在无法从代码、配置、文档和项目约定推导关键用户意图时主动询问。相关问题会批量展示，每题可使用单选或多选并固定提供自由输入；多题通过标签页和 Review 集中提交，未回答项会明确返回 `Unanswered`，不使用超时自动选择。
 
 TUI 使用富交互界面。RPC、JSON、Print 与独立 Subagent 不提供 Pi TUI，扩展会从 active tools 移除该工具；子 Agent 应把关键歧义返回父对话。若已安装其他同名 `questionnaire` 扩展，应在 `pi config` 中只保留一个入口。
+
+### MCP
+
+PiCraft 的 `/mcp` 使用 Pi 原生选择栏控制 MCP server 和单个工具，不提供额外管理面板。配置兼容 `mcpServers` 格式，读取 `~/.pi/agent/mcp.json` 和已信任项目的 `<project>/.mcp.json`，项目同名 server 覆盖全局配置。支持 `command / args / env / cwd` stdio server，以及 `url / headers` Streamable HTTP server；字符串中的 `${ENV_NAME}` 会读取当前环境变量。
+
+所有 server 默认关闭，只有打开配置页或恢复当前会话已启用状态时才连接。一级列表选择 server，二级列表开关 server 和工具；工具启用状态写入当前 Pi 会话，MCP 配置、token 和 server 进程本身不写入会话内容。首版只桥接 tools，不桥接 MCP resources、prompts、sampling 或 OAuth。
+
+```json
+{
+  "mcpServers": {
+    "local": {
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"],
+      "env": { "TOKEN": "${MCP_TOKEN}" }
+    },
+    "remote": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+    }
+  }
+}
+```
+
+启用 MCP server 或工具代表允许模型调用它。PiCraft Permission 只能识别桥接后的工具名，不能可靠推断 MCP server 内部的文件、网络或破坏性行为；只配置可信 server，并在 `/mcp` 中保持不需要的工具关闭。
 
 ### 工具授权
 

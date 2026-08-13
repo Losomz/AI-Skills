@@ -15,12 +15,33 @@ Restart Pi after installation, or run `/reload` in an existing Pi session.
 - Plan: a persistent planning mode with guarded write tools and explicit execution handoff.
 - Questionnaire: structured intent clarification with single-choice, multiple-choice, and free-form answers in the Pi TUI.
 - Permission: project-boundary and sensitive-file approval with parent/child session authorization sharing.
+- MCP: lightweight stdio and Streamable HTTP server/tool controls through the Pi TUI.
 - Subagent: bundled General, Explore, and Scout agents with per-agent model and thinking configuration.
 - Git: commit, pull, and branch workflows under `/git`.
 - Init: repository-aware `AGENTS.md` initialization with reusable project templates.
 - Blog: file-based product, technical, release, and work log workflows.
 
 PiCraft requires Pi 0.80.4 or newer.
+
+## MCP
+
+Add compatible `mcpServers` configuration to `~/.pi/agent/mcp.json` or a trusted project's `.mcp.json`, then use `/mcp` to enable servers and individual tools. Servers are disabled by default and connect only when selected.
+
+```json
+{
+  "mcpServers": {
+    "local": {
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"],
+      "env": { "TOKEN": "${MCP_TOKEN}" }
+    },
+    "remote": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+    }
+  }
+}
+```
 
 ## Update
 

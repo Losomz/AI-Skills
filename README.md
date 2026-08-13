@@ -2,7 +2,7 @@
 
 个人 AI Agent 工作流、配置与模板仓库。
 
-PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `@losomz/picraft`。
+PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、MCP、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `@losomz/picraft`。
 
 ## 当前目录结构
 
@@ -178,6 +178,7 @@ packages/picraft/extensions/
 - `init/`：提供 `/init`，用基础说明和可选模板创建或更新目标项目的 `AGENTS.md`。
 - `questionnaire/`：提供模型主动调用的意图澄清工具，支持批量问题、单选、多选和自由输入。
 - `permission/`：提供项目边界与敏感文件审批，以及 `/permissions` 会话授权管理。
+- `mcp/`：通过 `/mcp` 使用 Pi 原生选择栏按服务器和工具控制 stdio/HTTP MCP。
 - `plan/`：提供 `/plan` 计划模式，限制写工具并注入规划提示。
 - `subagent/`：提供子代理工具、`#AgentName` 快捷委派、per-agent 模型与 thinking 配置面板，以及内置 `General` / `Explore` / `Scout`。
 - `git/`：提供 `/git` 分层入口，包括 commit、pull、branch 等 Git 工作流。

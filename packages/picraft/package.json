@@ -1,6 +1,6 @@
 {
   "name": "@losomz/picraft",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "An opinionated Pi workflow suite for planning, intent clarification, permissions, subagents, Git automation, project initialization, and publishing.",
   "license": "MIT",
@@ -28,6 +28,7 @@
     "extensions/init",
     "extensions/blog",
     "extensions/permission",
+    "extensions/mcp",
     "extensions/shared",
     "skills",
     "prompts",
@@ -39,6 +40,9 @@
   },
   "scripts": {
     "test": "node --test extensions/plan/tests/plan.test.ts extensions/git/tests/commit.test.ts extensions/subagent/tests/model-catalog.test.ts extensions/subagent/tests/model-overrides.test.ts extensions/subagent/tests/process-args.test.ts extensions/subagent/tests/runner.test.ts extensions/subagent/tests/shortcut.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
@@ -72,7 +76,8 @@
       "./extensions/git/index.ts",
       "./extensions/init/index.ts",
       "./extensions/blog/index.ts",
-      "./extensions/permission/index.ts"
+      "./extensions/permission/index.ts",
+      "./extensions/mcp/index.ts"
     ],
     "skills": [
       "./skills"
