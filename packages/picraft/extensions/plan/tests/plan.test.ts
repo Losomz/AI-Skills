@@ -368,7 +368,7 @@ function collectSources(directory: string): string[] {
 
 test("Subagent sources and agent configs contain no Plan-specific protocol", () => {
 	const subagentDir = fileURLToPath(new URL("../../subagent/", import.meta.url));
-	const agentsDir = fileURLToPath(new URL("../../../../../../agents/", import.meta.url));
+	const agentsDir = fileURLToPath(new URL("../../../../../agents/", import.meta.url));
 	const forbidden = /\b(?:planMode|PlanModePolicy|isPlanEnabled|validatePlanSubagentCall)\b|["'`](?:plan-state|plan-mode)["'`]/;
 	for (const filePath of [...collectSources(subagentDir), ...collectSources(agentsDir)]) {
 		assert.doesNotMatch(readFileSync(filePath, "utf8"), forbidden, filePath);
