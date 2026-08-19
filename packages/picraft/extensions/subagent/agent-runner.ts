@@ -1,3 +1,5 @@
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentConfig } from "./agents.js";
 import type { AgentThinkingLevel } from "./thinking.js";
@@ -17,6 +19,33 @@ export type AgentProcessStatus = PiProcessStatus;
 export type AgentProcessUsage = PiProcessUsage;
 export type { PiProcessInvocation, PiRuntimeInfo };
 export { resolvePiInvocation };
+export const SCOUT_REPOSITORY_CAPABILITY_ENV = "PI_SUBAGENT_SCOUT_REPOSITORY";
+const BUNDLED_SCOUT_PROFILE_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "agents", "scout.md");
+
+function comparableProfilePath(value: string): string {
+	const resolved = path.resolve(value);
+	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+export function getBundledScoutProfilePath(): string {
+	return BUNDLED_SCOUT_PROFILE_PATH;
+}
+
+export function isTrustedBundledScoutProfile(profile: Pick<AgentConfig, "name" | "source" | "filePath">): boolean {
+	return (
+		profile.source === "project" &&
+		profile.name.trim().toLowerCase() === "scout" &&
+		comparableProfilePath(profile.filePath) === comparableProfilePath(BUNDLED_SCOUT_PROFILE_PATH)
+	);
+}
+
+export function isScoutRepositoryCapabilityEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+	return (
+		env.PI_IS_SUBAGENT === "1" &&
+		env[SCOUT_REPOSITORY_CAPABILITY_ENV] === "1" &&
+		getSubagentNameFromEnvironment(env)?.toLowerCase() === "scout"
+	);
+}
 
 export interface AgentProcessUpdate {
 	runId: string;
@@ -86,6 +115,13 @@ function buildSubagentEnvironment(profile: AgentConfig, parentSessionId: string 
 		PI_IS_SUBAGENT: "1",
 		PI_SUBAGENT_NAME: profile.name,
 	};
+	delete env[SCOUT_REPOSITORY_CAPABILITY_ENV];
+	if (isTrustedBundledScoutProfile(profile)) {
+		env[SCOUT_REPOSITORY_CAPABILITY_ENV] = "1";
+		env.GIT_TERMINAL_PROMPT = "0";
+		env.GCM_INTERACTIVE = "Never";
+		env.GIT_LFS_SKIP_SMUDGE = "1";
+	}
 	if (parentSessionId?.trim()) env.PI_SUBAGENT_PARENT_SESSION = parentSessionId.trim();
 	else delete env.PI_SUBAGENT_PARENT_SESSION;
 	return env;

@@ -150,7 +150,11 @@ export class SessionGrants {
 	private readonly rules: PermissionRequirement[] = [];
 	private revisionValue = 0;
 
-	constructor(private readonly onChange?: () => void) {}
+	private readonly onChange?: () => void;
+
+	constructor(onChange?: () => void) {
+		this.onChange = onChange;
+	}
 
 	currentRevision(): number {
 		return this.revisionValue;

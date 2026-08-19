@@ -95,7 +95,11 @@ export function permissionForwardingRoot(agentDir: string): string {
 }
 
 export class PermissionSnapshotStore {
-	constructor(private readonly forwardingRoot: string) {}
+	private readonly forwardingRoot: string;
+
+	constructor(forwardingRoot: string) {
+		this.forwardingRoot = forwardingRoot;
+	}
 
 	publish(
 		sessionId: string,
@@ -210,6 +214,8 @@ export async function requestParentPermission(
 }
 
 export class PermissionForwardingServer {
+	private readonly forwardingRoot: string;
+	private readonly onHeartbeat?: (sessionId: string) => void;
 	private timer: NodeJS.Timeout | undefined;
 	private sessionId: string | undefined;
 	private handler: ForwardedPermissionHandler | undefined;
@@ -218,9 +224,12 @@ export class PermissionForwardingServer {
 	private generation = 0;
 
 	constructor(
-		private readonly forwardingRoot: string,
-		private readonly onHeartbeat?: (sessionId: string) => void,
-	) {}
+		forwardingRoot: string,
+		onHeartbeat?: (sessionId: string) => void,
+	) {
+		this.forwardingRoot = forwardingRoot;
+		this.onHeartbeat = onHeartbeat;
+	}
 
 	start(sessionId: string, handler: ForwardedPermissionHandler): void {
 		if (!normalizeSessionId(sessionId)) return;

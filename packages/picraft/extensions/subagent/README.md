@@ -105,7 +105,10 @@ model-catalog.ts    # Pi ModelRegistry adapter and refresh coalescing
 model-overrides.ts  # versioned local config, migration, locking, atomic writes, effective profile resolution
 model-picker.ts     # /subagent agent/model/thinking settings and RPC fallback
 thinking.ts         # supported persisted thinking values and parser
-agent-runner.ts     # Subagent profile adapter over the package-neutral shared runner
+agent-runner.ts     # Subagent profile adapter over the package-neutral shared runner and trusted-child capabilities
+repository-cache.ts # validated URL/branch checkout cache, mutation queue, lock, clone, fetch, and stale reuse
+repository-tool.ts  # trusted Scout-only scout_repository tool registration and compact results
+../shared/scout-cache-paths.ts # cache-root, URL identity, branch, and deterministic path helpers
 ```
 
 ## Bundled Agents
@@ -154,13 +157,17 @@ A fast read-only codebase exploration agent. It cannot modify files. Use it to f
 
 模式：subagent
 
-A read-only external research agent for dependencies, upstream source code, and external documentation. It may clone external repositories into a managed cache, but must not modify the current workspace.
+A read-only external research agent for dependencies, upstream source code, and external documentation. It must use the trusted `scout_repository` tool for external Git checkouts and must not modify the current workspace. The tool may create or refresh validated branch-specific repositories in PiCraft's managed cache.
 
-Recommended cache location:
+The repository tool is exposed only inside a child launched from the exact bundled Scout profile. A user-defined agent with the same name does not receive the capability.
+
+Managed cache root:
 
 ```text
-~/.cache/agentframework/subagents/
+~/.cache/picraft/scout/
 ```
+
+The cache contains `repos/` for managed checkouts and a reserved `artifacts/` directory. Repository paths are deterministic by lowercased host and case-safe encoded repository path segments; an explicitly requested branch adds an encoded `@branch` suffix, while the remote-default checkout uses the unsuffixed repository path. Accepted inputs are explicit HTTPS, HTTP, SSH, Git, and `git@host:path` URLs without credentials, query strings, fragments, or traversal. Existing checkouts refresh by default; callers may intentionally disable refresh for offline reuse. Fetch failures preserve a revalidated checkout and report it as stale.
 
 ## Running Widget
 
@@ -196,5 +203,7 @@ Current version does **not** use Git worktree isolation.
 ## Safety Notes
 
 - Extension-local agents are prompts bundled with this trusted config package.
+- The bundled Scout child receives `scout_repository` through a dedicated capability environment marker; user-defined same-name agents do not.
+- `scout_repository` is the only supported external repository checkout path for Scout. Direct `git clone` and `git fetch` commands are forbidden by the Scout instructions.
 - `#AgentName` shortcuts run bundled extension-local agents with `confirmProjectAgents: false`.
 - The raw `subagent` tool still accepts `agentScope` for advanced use, but the default bundled agents are discovered from this extension's own `agents/` directory.

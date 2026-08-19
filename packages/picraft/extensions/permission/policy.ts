@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { canonicalize, normalizePathForPolicy, type PermissionPathPolicy } from "./core.ts";
+import { getPicraftScoutCacheRoot } from "../shared/scout-cache-paths.ts";
 
 const AGENT_RESOURCE_DIRS = ["extensions", "git", "npm", "skills", "prompts", "themes", "bin"] as const;
 const AGENT_READABLE_FILES = [".gitignore", "settings.json", "models-store.json", "subagent-models.json", "trust.json"] as const;
@@ -29,6 +30,7 @@ export function buildPermissionPathPolicy(cwd: string, runtime: PermissionRuntim
 		projectRoots: projectRoots(cwd),
 		trustedReadRoots: uniquePaths([
 			packageDir,
+			getPicraftScoutCacheRoot(),
 			...AGENT_RESOURCE_DIRS.map((name) => join(agentDir, name)),
 			...runtimeReadRoots,
 		]),

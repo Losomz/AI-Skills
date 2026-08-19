@@ -1,6 +1,6 @@
 # 发布 PiCraft npm 包
 
-PiCraft 的 npm 包是 `@losomz/picraft`，发布目录是仓库中的 `packages/picraft/`，不是仓库根目录。
+PiCraft 的 npm 包是 `pi-craft`，发布目录是仓库中的 `packages/picraft/`，不是仓库根目录。
 
 ## PowerShell 发布流程
 
@@ -22,7 +22,7 @@ node -p "require('./package.json').version"
 npm version patch --no-git-tag-version
 ```
 
-如果版本已经递增过，例如当前已经是 `0.1.5`，不要再次执行 `npm version`，否则会变成 `0.1.6`。
+如果版本已经递增过，例如当前已经是 `0.1.8`，不要再次执行 `npm version`，否则会变成 `0.1.9`。
 
 生成发布包：
 
@@ -33,13 +33,13 @@ npm pack
 该命令会在当前目录生成对应版本的 tarball，例如：
 
 ```text
-losomz-picraft-0.1.5.tgz
+pi-craft-0.1.8.tgz
 ```
 
 发布刚生成的 tarball：
 
 ```powershell
-npm publish .\losomz-picraft-0.1.5.tgz --access public
+npm publish .\pi-craft-0.1.8.tgz --access public
 ```
 
 将命令中的版本号替换成实际由 `package.json` 生成的版本号。
@@ -47,7 +47,7 @@ npm publish .\losomz-picraft-0.1.5.tgz --access public
 发布成功后可以删除本地 tarball：
 
 ```powershell
-Remove-Item .\losomz-picraft-0.1.5.tgz
+Remove-Item .\pi-craft-0.1.8.tgz
 ```
 
 ## 下次更新的最短流程
@@ -57,7 +57,7 @@ Remove-Item .\losomz-picraft-0.1.5.tgz
 ```powershell
 npm version patch --no-git-tag-version
 npm pack
-npm publish .\losomz-picraft-X.Y.Z.tgz --access public
+npm publish .\pi-craft-X.Y.Z.tgz --access public
 ```
 
 把最后一行的 `X.Y.Z` 替换为新的实际版本号。
@@ -78,13 +78,13 @@ npm whoami
 ## 验证
 
 ```powershell
-npm view @losomz/picraft version dist-tags
+npm view pi-craft version dist-tags
 ```
 
 然后更新本机 Pi package：
 
 ```powershell
-pi update npm:@losomz/picraft
+pi update npm:pi-craft
 ```
 
 在 Pi 中执行 `/reload`，或重启 Pi。

@@ -38,6 +38,7 @@ import {
 	type ModelReference,
 } from "./model-overrides.js";
 import { registerSubagentConfiguration } from "./model-picker.js";
+import { registerScoutRepositoryTool } from "./repository-tool.js";
 import {
 	buildShortcutInvocationPrompt,
 	getHashShortcutCompletions,
@@ -49,7 +50,7 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
-const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls", "bash", "questionnaire"]);
+const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls", "bash", "questionnaire", "scout_repository"]);
 
 function findLastActiveAgentName(ctx: ExtensionContext): string | undefined {
 	const entries = ctx.sessionManager.getEntries();
@@ -626,6 +627,7 @@ const SubagentParams = Type.Object({
 
 export default function (pi: ExtensionAPI) {
 	registerSubagentConfiguration(pi);
+	registerScoutRepositoryTool(pi);
 
 	pi.on("session_start", (_event, ctx) => {
 		const activeSubagentName = getSubagentNameFromEnvironment();

@@ -2,7 +2,7 @@
 
 个人 AI Agent 工作流、配置与模板仓库。
 
-PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、MCP、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `@losomz/picraft`。
+PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、MCP、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `pi-craft`。
 
 ## 当前目录结构
 
@@ -20,7 +20,7 @@ AgentFramework/
 │       ├── .agents/                 # 项目级 Codex Skills
 │       └── .opencode/               # OpenCode commands / skills
 ├── packages/
-│   └── picraft/                     # 独立发布的 @losomz/picraft
+│   └── picraft/                     # 独立发布的 pi-craft
 │       ├── extensions/              # Plan、Questionnaire、Permission 等
 │       ├── prompts/
 │       ├── skills/
@@ -43,9 +43,11 @@ AgentFramework/
 PiCraft 的 Pi 资源在 `packages/picraft/` 中作为独立 npm package 维护；仓库根 `package.json` 仅为 Git package 指向同一份源码。公开版本推荐通过 npm package 安装，不需要手工 clone 或复制扩展：
 
 ```bash
-pi install npm:@losomz/picraft
+pi install npm:pi-craft
 pi list
 ```
+
+已有配置若仍使用历史身份 `npm:@losomz/picraft`，先执行 `pi remove npm:@losomz/picraft`，再安装 `npm:pi-craft`；Pi 会把两个 npm 名称视为不同 package。
 
 安装后重启 Pi。Pi 会把 package 安装到自己的全局 npm 管理目录，并从中加载 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog：
 
@@ -66,7 +68,7 @@ pi update --extensions
 只更新 PiCraft：
 
 ```bash
-pi update npm:@losomz/picraft
+pi update npm:pi-craft
 ```
 
 更新后重启 Pi，或者在 Pi 中执行：
@@ -78,10 +80,10 @@ pi update npm:@losomz/picraft
 卸载命令：
 
 ```bash
-pi remove npm:@losomz/picraft
+pi remove npm:pi-craft
 ```
 
-固定版本安装使用 `pi install npm:@losomz/picraft@0.1.3`。固定版本不会被 package 更新命令升级；需要升级时安装新的显式版本。
+固定版本安装使用 `pi install npm:pi-craft@0.1.8`。固定版本不会被 package 更新命令升级；需要升级时安装新的显式版本。
 
 #### Git 来源
 
@@ -91,7 +93,7 @@ pi remove npm:@losomz/picraft
 pi install git:github.com/Losomz/AgentFramework
 ```
 
-npm 与 Git 是两个不同的 package 身份，Pi 不会在两者之间自动去重。不要同时安装两个来源；从 Git 版本迁移到 npm 版本时，先运行 `pi remove git:github.com/Losomz/AgentFramework`，再运行 `pi install npm:@losomz/picraft`。
+npm 与 Git 是两个不同的 package 身份，Pi 不会在两者之间自动去重。不要同时安装两个来源；从 Git 版本迁移到 npm 版本时，先运行 `pi remove git:github.com/Losomz/AgentFramework`，再运行 `pi install npm:pi-craft`。
 
 #### 意图询问
 
@@ -99,7 +101,7 @@ PiCraft 内置 `questionnaire` 工具。主 Agent 在已经检查代码、配置
 
 #### 工具授权
 
-PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。策略采用 `allow / ask / deny` 三态：项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源以及普通 sessions/logs 默认允许读取；访问其他外部路径，或读取 `.env`、`auth.json`、`models.json` 时询问。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍保持直接父目录范围。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。修改 Pi 安装文件仍按外部写入处理。
+PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。策略采用 `allow / ask / deny` 三态：项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；访问其他外部路径，或读取 `.env`、`auth.json`、`models.json` 时询问。Scout 缓存只获得普通读取信任，敏感读取与普通写入仍按原规则审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍保持直接父目录范围。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。修改 Pi 安装文件仍按外部写入处理。
 
 审批提供 `Allow once / Allow always / Reject`。Always 只属于当前父对话并区分读写作用域；Subagent 会直接复用仍然有效的父授权，未匹配的请求才转交父 authority。授权提交后会释放同一规则覆盖的 pending 请求，`/permissions` 可查看或撤销；无 UI 或父 authority 不可用时默认拒绝。权限审批是工具调用策略层，不是操作系统沙箱。
 

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 0.1.8 发布与迁移
+
+- 将 Scout 的外部仓库检出纳入 PiCraft 管理的 `~/.cache/picraft/scout` 缓存，通过受控工具按 host、仓库和分支生成确定性路径；Permission 对该精确根目录开放普通读取，敏感文件和普通写入仍保持原审批规则。
+- 旧的 `~/.cache/agentframework/subagents` 不自动迁移或复用；升级实施时先输出仓库、dirty 状态、文件大小与哈希清单，再整体删除旧缓存，避免把重复命名和来源不明的非 Git 内容带入新结构。
+- npm package 身份从历史的 `@losomz/picraft` 迁移为 `pi-craft`；Pi 将两者视为不同 package，已有旧身份需要先移除，再安装新身份。
+- 非 Git 产物本次只预留独立的 `artifacts/` 目录，不开放受管下载或写入，相关支持延期处理。
+
 ### 功能变更
 
 - 为 `0.1.2` 将 PiCraft 改为 `packages/picraft/` 独立 npm 子包，提供只面向 Pi 的 package manifest、README 和扁平 `extensions/` 资源路径；综合仓库根继续维护 Codex、OpenCode 和通用 Agent 内容，但不再作为 npm 发布根目录。

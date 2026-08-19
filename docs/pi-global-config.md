@@ -14,9 +14,11 @@ Pi 官方把配置分为全局配置和项目级配置：
 PiCraft 的 Pi 资源由 `packages/picraft/package.json` 声明并独立发布。仓库根 manifest 只为 Git package 指向同一份源码；公开版本优先使用 npm package 管理，不再把扩展手工复制到全局目录：
 
 ```bash
-pi install npm:@losomz/picraft
+pi install npm:pi-craft
 pi list
 ```
+
+若本机仍安装历史身份 `npm:@losomz/picraft`，先运行 `pi remove npm:@losomz/picraft`，再安装 `npm:pi-craft`。两个名称是不同的 Pi package 身份，不能依赖 update 自动切换。
 
 默认是用户级安装，Pi 会把 package 管理在：
 
@@ -28,16 +30,16 @@ pi list
 
 ```bash
 pi update --extensions
-pi update npm:@losomz/picraft
+pi update npm:pi-craft
 ```
 
 更新后重启 Pi，或者执行 `/reload`。卸载使用：
 
 ```bash
-pi remove npm:@losomz/picraft
+pi remove npm:pi-craft
 ```
 
-使用 `pi install npm:@losomz/picraft@0.1.3` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。
+使用 `pi install npm:pi-craft@0.1.8` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。
 
 需要跟踪仓库主线或参与开发时，可改用 `pi install git:github.com/Losomz/AgentFramework`。npm 与 Git 是两个不同的 package 身份，不能同时启用；从 Git 来源迁移时先移除 Git package，再安装 npm package。npm 包发布流程见 [`docs/npm-publish.md`](npm-publish.md)。
 
@@ -91,7 +93,7 @@ PiCraft 的 `/mcp` 使用 Pi 原生选择栏控制 MCP server 和单个工具，
 
 ### 工具授权
 
-PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问，整个临时目录不会被加入白名单。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
+PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问。Scout 缓存只获得普通读取信任，敏感读取和普通写入仍保持审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
 
 审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
 
@@ -101,7 +103,7 @@ Pi package 的管理目录与 `~/.pi/agent/extensions/` 相互独立。安装 pa
 
 首次迁移步骤：
 
-1. 执行 `pi install npm:@losomz/picraft`。
+1. 执行 `pi install npm:pi-craft`。
 2. 执行 `pi config`，禁用 `~/.pi/agent/extensions/` 中的 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 入口，保留 package 入口。
 3. 重启 Pi，确认 `/plan`、`/permissions`、`/subagent`、`/git`、`/init` 和 `/blog` 各只有一个入口。
 4. 确认功能正常后，备份或移除上述本地扩展目录。
