@@ -9,7 +9,11 @@ import {
 	permissionRequestId,
 	releasePermissionExtensionRegistration,
 } from "./authority.ts";
-import { buildPermissionPathPolicy, extractSubmittedTempFiles } from "./policy.ts";
+import {
+	buildPermissionPathPolicy,
+	extractSubmittedTempFiles,
+	extractTerminalPasteFiles,
+} from "./policy.ts";
 import {
 	evaluatePermissionPolicy,
 	requirementAccess,
@@ -35,6 +39,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	);
 	const childProcess = isSubagentProcess();
 	const policyByCwd = new Map<string, ReturnType<typeof buildPermissionPathPolicy>>();
+	let unsubscribeTerminalFileTrust: (() => void) | undefined;
 
 	if (!childProcess) authority.configureSnapshotStore(new PermissionSnapshotStore(forwardingRoot));
 
@@ -53,6 +58,17 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 			});
 			return result.decision ?? { kind: "once" };
 		});
+
+		unsubscribeTerminalFileTrust?.();
+		unsubscribeTerminalFileTrust = undefined;
+		if (ctx.mode === "tui" && typeof ctx.ui.onTerminalInput === "function") {
+			// Pi reassembles each bracketed paste before terminal listeners run.
+			unsubscribeTerminalFileTrust = ctx.ui.onTerminalInput((data) => {
+				const files = extractTerminalPasteFiles(data);
+				if (files.length > 0) authority.registerTrustedFiles(sessionId, files);
+				return undefined;
+			});
+		}
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -73,7 +89,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 			? basePolicy
 			: {
 				...basePolicy,
-				trustedReadFiles: [...(basePolicy.trustedReadFiles ?? []), ...sessionTrustedFiles],
+				approvedReadFiles: [...(basePolicy.approvedReadFiles ?? []), ...sessionTrustedFiles],
 			};
 		const policyDecision = evaluatePermissionPolicy(toolCall, ctx.cwd, localPolicy, agentName);
 		if (policyDecision.effect === "deny") {
@@ -89,9 +105,9 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 			const isCovered = (view: NonNullable<typeof firstView>): boolean => {
 				const inheritedRequest = evaluatePermissionPolicy(toolCall, ctx.cwd, {
 					...localPolicy,
-					trustedReadFiles: [
-						...(localPolicy.trustedReadFiles ?? []),
-						...view.trustedReadFiles,
+					approvedReadFiles: [
+						...(localPolicy.approvedReadFiles ?? []),
+						...view.approvedReadFiles,
 					],
 				}, agentName);
 				return inheritedRequest.effect === "allow" ||
@@ -135,12 +151,10 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("input", (event, ctx) => {
-		registerSubmittedFiles(authority, currentSessionId(ctx), event.text);
+		if (!childProcess && event.source !== "extension") {
+			registerSubmittedFiles(authority, currentSessionId(ctx), event.text);
+		}
 		return { action: "continue" };
-	});
-
-	pi.on("before_agent_start", (event, ctx) => {
-		registerSubmittedFiles(authority, currentSessionId(ctx), event.prompt);
 	});
 
 	pi.registerCommand("permissions", {
@@ -166,6 +180,8 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
+		unsubscribeTerminalFileTrust?.();
+		unsubscribeTerminalFileTrust = undefined;
 		forwardingServer.stop();
 		authority.clearSession(currentSessionId(ctx));
 		policyByCwd.clear();
@@ -197,7 +213,7 @@ function registerSubmittedFiles(
 	sessionId: string,
 	text: string,
 ): void {
-	for (const filePath of extractSubmittedTempFiles(text)) authority.registerTrustedFile(sessionId, filePath);
+	authority.registerTrustedFiles(sessionId, extractSubmittedTempFiles(text));
 }
 
 function subagentName(): string | undefined {

@@ -1,14 +1,18 @@
+import { statSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import {
 	canonicalize,
 	normalizePathForPolicy,
+	requirementAccess,
 	SessionGrants,
 	type PermissionRequest,
 } from "./core.ts";
 import { PermissionSnapshotStore } from "./forwarding.ts";
 import { PermissionPromptQueue, type PermissionPromptResult } from "./queue.ts";
 import type { PermissionPromptDecision } from "./presentation.ts";
+
+const MAX_TRUSTED_FILES_PER_SESSION = 512;
 
 export interface PermissionAuthorizationOptions {
 	sessionId: string;
@@ -64,14 +68,25 @@ export class PermissionAuthority {
 	}
 
 	registerTrustedFile(sessionId: string, filePath: string): void {
+		this.registerTrustedFiles(sessionId, [filePath]);
+	}
+
+	registerTrustedFiles(sessionId: string, filePaths: readonly string[]): void {
+		if (filePaths.length === 0) return;
 		let files = this.trustedFilesBySession.get(sessionId);
 		if (!files) {
 			files = new Set<string>();
 			this.trustedFilesBySession.set(sessionId, files);
 		}
-		const sizeBefore = files.size;
-		files.add(policyPath(filePath));
-		if (files.size !== sizeBefore) this.publishSnapshot(sessionId);
+		let changed = false;
+		for (const filePath of filePaths) {
+			const path = trustedFilePath(filePath);
+			if (!path || files.has(path)) continue;
+			if (files.size >= MAX_TRUSTED_FILES_PER_SESSION) break;
+			files.add(path);
+			changed = true;
+		}
+		if (changed) this.publishSnapshot(sessionId);
 	}
 
 	trustedFiles(sessionId: string): string[] {
@@ -111,12 +126,11 @@ export class PermissionAuthority {
 	}
 
 	private removeTrustedFileRequirements(sessionId: string, request: PermissionRequest): PermissionRequest {
-		if (!isReadTool(request.toolName)) return request;
 		const files = this.trustedFilesBySession.get(sessionId);
 		if (!files?.size) return request;
 		const requirements = request.requirements.filter(
 			(requirement) =>
-				requirement.permission !== "external_directory" ||
+				requirementAccess(requirement) !== "read" ||
 				!files.has(policyPath(requirement.pattern)),
 		);
 		return requirements.length === request.requirements.length ? request : { ...request, requirements };
@@ -168,14 +182,21 @@ export function permissionRequestId(toolCallId: string): string {
 	return toolCallId;
 }
 
+function trustedFilePath(filePath: string): string | undefined {
+	try {
+		const path = canonicalize(filePath);
+		return statSync(path).isFile()
+			? comparable(normalizePathForPolicy(path))
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function policyPath(filePath: string): string {
 	return comparable(normalizePathForPolicy(canonicalize(filePath)));
 }
 
 function comparable(filePath: string): string {
 	return process.platform === "win32" ? filePath.toLowerCase() : filePath;
-}
-
-function isReadTool(toolName: string): boolean {
-	return toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls";
 }

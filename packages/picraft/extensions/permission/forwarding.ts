@@ -13,6 +13,7 @@ import {
 import { dirname, join } from "node:path";
 
 import {
+	canonicalize,
 	requirementAccess,
 	SessionGrants,
 	type PathAccess,
@@ -73,7 +74,7 @@ interface ForwardingLocation {
 
 export interface ParentGrantView {
 	grants: SessionGrants;
-	trustedReadFiles: readonly string[];
+	approvedReadFiles: readonly string[];
 	revision: number;
 }
 
@@ -105,7 +106,7 @@ export class PermissionSnapshotStore {
 		sessionId: string,
 		revision: number,
 		grants: readonly PermissionRequirement[],
-		trustedReadFiles: readonly string[],
+		approvedReadFiles: readonly string[],
 	): boolean {
 		const location = forwardingLocation(this.forwardingRoot, sessionId);
 		if (!location) return false;
@@ -119,7 +120,7 @@ export class PermissionSnapshotStore {
 				access: requirementAccess(rule),
 				alwaysPattern: rule.alwaysPattern,
 			})),
-			trustedReadFiles: Array.from(trustedReadFiles),
+			trustedReadFiles: Array.from(approvedReadFiles),
 		};
 		return writeJsonAtomic(location.grants, snapshot);
 	}
@@ -154,7 +155,7 @@ export function loadParentGrantView(
 	})));
 	return {
 		grants,
-		trustedReadFiles: snapshot.trustedReadFiles,
+		approvedReadFiles: snapshot.trustedReadFiles,
 		revision: snapshot.revision,
 	};
 }
@@ -463,7 +464,28 @@ function asGrantSnapshot(value: unknown, sessionId: string): PermissionGrantSnap
 	) {
 		return undefined;
 	}
-	return value as unknown as PermissionGrantSnapshot;
+	return {
+		...(value as unknown as PermissionGrantSnapshot),
+		trustedReadFiles: validSnapshotReadFiles(value.trustedReadFiles as string[]),
+	};
+}
+
+function validSnapshotReadFiles(files: readonly string[]): string[] {
+	const result: string[] = [];
+	const seen = new Set<string>();
+	for (const file of files) {
+		try {
+			const path = canonicalize(file);
+			if (!statSync(path).isFile()) continue;
+			const key = process.platform === "win32" ? path.toLowerCase() : path;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			result.push(path);
+		} catch {
+			// Stale or malformed file entries are omitted without discarding valid session grants.
+		}
+	}
+	return result;
 }
 
 function asForwardedRequest(value: unknown): ForwardedPermissionRequest | undefined {

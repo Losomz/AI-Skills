@@ -104,6 +104,56 @@ test("a sensitive file outside the project combines both reasons into one reques
 	}
 });
 
+test("user-approved files bypass exact reads without granting siblings or writes", () => {
+	const item = fixture();
+	try {
+		const dropped = join(item.outside, "dropped notes.txt");
+		const sensitive = join(item.outside, ".env.production");
+		const sibling = join(item.outside, "sibling.txt");
+		writeFileSync(dropped, "demo\n");
+		writeFileSync(sensitive, "TOKEN=demo\n");
+		writeFileSync(sibling, "other\n");
+		const policy = { projectRoots: [item.root], approvedReadFiles: [dropped, sensitive] };
+
+		assert.equal(collectPermissionRequest({ toolName: "read", input: { path: dropped } }, item.root, policy), undefined);
+		assert.equal(collectPermissionRequest({ toolName: "read", input: { path: sensitive } }, item.root, policy), undefined);
+		assert.equal(
+			collectPermissionRequest({ toolName: "bash", input: { command: `cat "${dropped}"` } }, item.root, policy),
+			undefined,
+		);
+		assert.deepEqual(
+			collectPermissionRequest({ toolName: "read", input: { path: sibling } }, item.root, policy)?.requirements.map(
+				({ permission, access }) => ({ permission, access }),
+			),
+			[{ permission: "external_directory", access: "read" }],
+		);
+		assert.deepEqual(
+			collectPermissionRequest({ toolName: "write", input: { path: dropped } }, item.root, policy)?.requirements.map(
+				({ permission, access }) => ({ permission, access }),
+			),
+			[{ permission: "external_directory", access: "write" }],
+		);
+	} finally {
+		item.cleanup();
+	}
+});
+
+test("ordinary trusted reads do not bypass sensitive-file approval", () => {
+	const item = fixture();
+	try {
+		const sensitive = join(item.outside, ".env.production");
+		writeFileSync(sensitive, "TOKEN=demo\n");
+		const request = collectPermissionRequest(
+			{ toolName: "read", input: { path: sensitive } },
+			item.root,
+			{ projectRoots: [item.root], trustedReadFiles: [sensitive] },
+		);
+		assert.deepEqual(request?.requirements.map((requirement) => requirement.permission), ["read"]);
+	} finally {
+		item.cleanup();
+	}
+});
+
 test("shell scanner extracts static file-command and redirection paths", () => {
 	assert.deepEqual(extractStaticShellPaths("cp 'one file.txt' ../outside/ && cat /tmp/value > result.txt"), [
 		"one file.txt",

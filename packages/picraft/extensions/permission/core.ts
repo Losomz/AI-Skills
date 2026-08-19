@@ -36,6 +36,7 @@ export interface PermissionPathPolicy {
 	projectRoots: readonly string[];
 	trustedReadRoots?: readonly string[];
 	trustedReadFiles?: readonly string[];
+	approvedReadFiles?: readonly string[];
 	sensitiveReadRoots?: readonly string[];
 	sensitiveReadFiles?: readonly string[];
 }
@@ -286,9 +287,13 @@ export function collectPermissionRequest(
 	for (const intent of paths) {
 		const target = resolveToolPath(intent.path, cwd);
 		const policyPath = normalizePathForPolicy(target);
+		const approvedRead =
+			intent.access === "read" && isExactPath(target, policy.approvedReadFiles ?? []);
 		const trustedRead =
 			intent.access === "read" &&
-			(isInsideRoots(target, policy.trustedReadRoots ?? []) || isExactPath(target, policy.trustedReadFiles ?? []));
+			(approvedRead ||
+				isInsideRoots(target, policy.trustedReadRoots ?? []) ||
+				isExactPath(target, policy.trustedReadFiles ?? []));
 
 		if (!isInsideRoots(target, policy.projectRoots) && !trustedRead) {
 			const grantRoot = intent.access === "read" ? findExternalReadGrantRoot(target) : undefined;
@@ -306,7 +311,7 @@ export function collectPermissionRequest(
 			(isSensitiveEnvPath(target) ||
 				isInsideRoots(target, policy.sensitiveReadRoots ?? []) ||
 				isExactPath(target, policy.sensitiveReadFiles ?? []));
-		if (sensitiveRead) {
+		if (sensitiveRead && !approvedRead) {
 			requirements.push({
 				permission: "read",
 				access: "read",

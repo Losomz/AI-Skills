@@ -93,7 +93,7 @@ PiCraft 的 `/mcp` 使用 Pi 原生选择栏控制 MCP server 和单个工具，
 
 ### 工具授权
 
-PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问。Scout 缓存只获得普通读取信任，敏感读取和普通写入仍保持审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
+PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问。用户通过 Pi TUI 拖入或粘贴的现存普通文件会获得当前会话的精确只读信任；用户明确提交的敏感文件也不重复询问，但目录、相邻文件和任何写操作不会因此放行。Scout 缓存只获得普通读取信任，敏感读取和普通写入仍保持审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
 
 审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
 

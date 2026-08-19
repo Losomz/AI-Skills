@@ -73,7 +73,7 @@ Do not enable npm, Git, project-local, or manually copied versions of the same P
 
 ## Security
 
-Pi extensions execute with the current user's system access. Review the source before installation. PiCraft Permission is a tool-call approval layer, not an operating-system sandbox; headless approval failures default to rejection. For external reads, an always grant uses a detected project, package, or engine manifest root so files in the same dependency tree do not prompt individually; external write grants remain limited to the direct parent directory. PiCraft's exact Scout cache root is trusted for ordinary reads by all agents, while sensitive-file checks and write approval remain active. Only the bundled Scout receives the managed repository tool.
+Pi extensions execute with the current user's system access. Review the source before installation. PiCraft Permission is a tool-call approval layer, not an operating-system sandbox; headless approval failures default to rejection. For external reads, an always grant uses a detected project, package, or engine manifest root so files in the same dependency tree do not prompt individually; external write grants remain limited to the direct parent directory. Existing regular files dragged or pasted into the Pi TUI receive exact, session-scoped read approval, including sensitive files the user explicitly supplies; parent directories, sibling files, and write operations remain restricted. PiCraft's exact Scout cache root is trusted for ordinary reads by all agents, while sensitive-file checks and write approval remain active. Only the bundled Scout receives the managed repository tool.
 
 Credentials, model configuration, sessions, logs, and other machine-local Pi state are not distributed by this package.
 
