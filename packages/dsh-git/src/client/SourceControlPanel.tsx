@@ -1,17 +1,16 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
-import type { CSSProperties } from 'react'
 import {
   IconBranchOutline16,
   IconCheckOutline16,
   IconCloseOutline16,
   IconPlusOutline16,
   IconRefreshOutline16,
+  IconSparkle16,
   Tooltip,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -33,7 +32,7 @@ function statusLetter(change: GitFileChange): string {
   return change.kind[0]?.toUpperCase() ?? 'M'
 }
 
-/** Source Control trigger and fixed work panel mounted in the sidebar footer. */
+/** Source Control header trigger with a viewport-fixed work panel. */
 export function SourceControlPanel({
   useSessions,
   useWorkspaces,
@@ -41,6 +40,7 @@ export function SourceControlPanel({
   diff,
   stage,
   unstage,
+  generateCommitMessage,
   commit,
 }: SourceControlPanelProps) {
   const currentSession = useSessions(state => state.current)
@@ -54,8 +54,9 @@ export function SourceControlPanel({
   const [diffResult, setDiffResult] = useState<GitDiffResult>()
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string>()
-  const [left, setLeft] = useState(72)
+  const [notice, setNotice] = useState<string>()
   const rootRef = useRef<HTMLDivElement>(null)
   useDismissOnOutsidePointer(rootRef, open, setOpen)
 
@@ -82,17 +83,6 @@ export function SourceControlPanel({
     setDiffResult(undefined)
     if (open) void refresh()
   }, [open, refresh, workspaceId])
-
-  useLayoutEffect(() => {
-    if (!open) return
-    const place = (): void => {
-      const rect = rootRef.current?.getBoundingClientRect()
-      if (rect !== undefined) setLeft(Math.max(16, rect.right + 8))
-    }
-    place()
-    window.addEventListener('resize', place)
-    return () => { window.removeEventListener('resize', place) }
-  }, [open])
 
   const selectFile = async (change: GitFileChange, staged: boolean): Promise<void> => {
     if (workspaceId === undefined) return
@@ -125,12 +115,33 @@ export function SourceControlPanel({
     }
   }
 
+  const generateMessage = async (): Promise<void> => {
+    if (workspaceId === undefined) return
+    setGenerating(true)
+    setError(undefined)
+    setNotice(undefined)
+    try {
+      const instruction = message.trim()
+      const result = await generateCommitMessage({
+        workspaceId,
+        ...instruction === '' ? {} : { instruction },
+      })
+      setMessage(result.message)
+    } catch (cause) {
+      setError(messageOf(cause))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const createCommit = async (): Promise<void> => {
     if (workspaceId === undefined) return
     setBusy(true)
     setError(undefined)
+    setNotice(undefined)
     try {
-      await commit({ workspaceId, message })
+      const result = await commit({ workspaceId, message })
+      setNotice(`Committed ${result.hash.slice(0, 7)}: ${result.summary}`)
       setMessage('')
       setSelection(undefined)
       setDiffResult(undefined)
@@ -147,7 +158,6 @@ export function SourceControlPanel({
   const branch = snapshot?.detached
     ? 'Detached HEAD'
     : snapshot?.branch ?? (snapshot?.unborn ? 'New repository' : '')
-  const panelStyle = { '--dsh-git-left': `${left}px` } as CSSProperties
 
   return (
     <div className="dshGitRoot" ref={rootRef}>
@@ -163,7 +173,7 @@ export function SourceControlPanel({
         </button>
       </Tooltip>
       {open && (
-        <section className="dshGitPanel" style={panelStyle} aria-label="Source Control panel">
+        <section className="dshGitPanel" aria-label="Source Control panel">
           <header className="dshGitHeader">
             <div className="dshGitTitle">
               <IconBranchOutline16 />
@@ -183,9 +193,42 @@ export function SourceControlPanel({
               </Tooltip>
             </div>
           </header>
+          <div className="dshGitCommit">
+            <div className="dshGitMessageField">
+              <textarea
+                value={message}
+                onChange={event => { setMessage(event.currentTarget.value) }}
+                placeholder="输入提交说明，或输入要求后使用 AI 生成"
+                aria-label="提交说明"
+                aria-busy={generating}
+                readOnly={generating}
+              />
+              <Tooltip label={generating ? '正在生成提交说明' : 'AI 生成提交说明'} side="right">
+                <button
+                  type="button"
+                  className="dshGitGenerate"
+                  disabled={busy || generating || workspaceId === undefined}
+                  aria-label="AI 生成提交说明"
+                  aria-busy={generating}
+                  onClick={() => void generateMessage()}
+                >
+                  <IconSparkle16 />
+                </button>
+              </Tooltip>
+            </div>
+            <button
+              type="button"
+              className="dshGitSubmit"
+              disabled={busy || generating || message.trim().length === 0}
+              onClick={() => void createCommit()}
+            >
+              <IconCheckOutline16 /> 提交
+            </button>
+          </div>
           <div className="dshGitBody">
             <div className="dshGitChanges">
               {error && <div className="dshGitError" role="alert">{error}</div>}
+              {notice && <div className="dshGitSuccess" role="status">{notice}</div>}
               {workspaceId === undefined && <div className="dshGitState">Select a workspace session to use Git.</div>}
               {workspaceId !== undefined && busy && snapshot === undefined && <div className="dshGitState">Loading repository...</div>}
               {snapshot !== undefined && (
@@ -207,16 +250,6 @@ export function SourceControlPanel({
               )}
             </div>
           </div>
-          <footer className="dshGitCommit">
-            <textarea value={message} onChange={event => { setMessage(event.currentTarget.value) }} placeholder="Commit message" aria-label="Commit message" />
-            <button
-              type="button"
-              disabled={busy || staged.length === 0 || message.trim().length === 0 || snapshot?.hasConflicts === true}
-              onClick={() => void createCommit()}
-            >
-              <IconCheckOutline16 /> Commit
-            </button>
-          </footer>
         </section>
       )}
     </div>
@@ -254,7 +287,7 @@ function ChangeSection({
         >
           <span className="dshGitStatus" data-conflict={file.kind === 'conflicted'}>{statusLetter(file)}</span>
           <span className="dshGitPath" title={file.path}>{file.path}</span>
-          <Tooltip label={staged ? 'Unstage file' : 'Stage file'} side="left">
+          <Tooltip label={staged ? 'Unstage file' : 'Stage file'} side="right">
             <span
               className="dshGitIconButton"
               role="button"

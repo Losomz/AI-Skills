@@ -12,6 +12,7 @@ import type {
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 const MAX_DIFF_BYTES = 512 * 1024
+export const STAGED_PATCH_PROMPT_BYTES = 200_000
 const COMMAND_TIMEOUT_MS = 30_000
 
 export class GitOperationError extends Error {
@@ -259,6 +260,39 @@ export async function unstagePaths(repoRoot: string, paths: readonly string[]): 
   else await runGit(repoRoot, ['--literal-pathspecs', 'rm', '--cached', '-q', '--', ...safePaths])
 }
 
+export interface GitStagedPromptContext {
+  branch: string | null
+  files: string[]
+  patch: string
+  truncated: boolean
+}
+
+export function truncatePatchForPrompt(text: string, budget = STAGED_PATCH_PROMPT_BYTES): { text: string; truncated: boolean } {
+  const source = Buffer.from(text, 'utf8')
+  if (source.byteLength <= budget) return { text, truncated: false }
+  const marker = Buffer.from(`\n...(staged diff truncated; ${source.byteLength - budget} or more bytes omitted)\n`, 'utf8')
+  const contentBudget = Math.max(0, budget - marker.byteLength)
+  const candidate = source.subarray(0, contentBudget)
+  const newline = candidate.lastIndexOf(0x0a)
+  const cut = newline >= Math.floor(contentBudget / 2) ? newline + 1 : contentBudget
+  return {
+    text: Buffer.concat([source.subarray(0, cut), marker]).subarray(0, budget).toString('utf8'),
+    truncated: true,
+  }
+}
+
+export async function readStagedPromptContext(repoRoot: string): Promise<GitStagedPromptContext> {
+  const status = await readStatus(repoRoot)
+  if (status.hasConflicts) throw new GitOperationError('MERGE_CONFLICTS', 'Resolve conflicts before generating a commit message')
+  const files = status.files.filter(file => file.staged).map(file => file.path)
+  if (files.length === 0) throw new GitOperationError('NOTHING_STAGED', 'There are no staged changes to describe')
+  const result = await runGit(repoRoot, ['--no-pager', 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color'], {
+    maxBytes: MAX_OUTPUT_BYTES,
+  })
+  const bounded = truncatePatchForPrompt(result.stdout.toString('utf8'))
+  return { branch: status.branch, files, patch: bounded.text, truncated: bounded.truncated }
+}
+
 export async function createCommit(repoRoot: string, message: string): Promise<GitCommitResult> {
   const normalized = message.trim()
   if (normalized.length === 0) throw new GitOperationError('EMPTY_COMMIT_MESSAGE', 'Commit message cannot be empty')
@@ -266,7 +300,7 @@ export async function createCommit(repoRoot: string, message: string): Promise<G
   const status = await readStatus(repoRoot)
   if (status.hasConflicts) throw new GitOperationError('MERGE_CONFLICTS', 'Resolve conflicts before committing')
   if (!status.files.some(file => file.staged)) throw new GitOperationError('NOTHING_STAGED', 'There are no staged changes to commit')
-  const result = await runGit(repoRoot, ['-c', 'commit.gpgSign=false', 'commit', '--file', '-'], { input: `${normalized}\n` })
+  const result = await runGit(repoRoot, ['commit', '--no-gpg-sign', '--cleanup=verbatim', '--file', '-'], { input: `${normalized}\n` })
   const hash = (await runGit(repoRoot, ['rev-parse', 'HEAD'])).stdout.toString('utf8').trim()
   const summary = result.stdout.toString('utf8').trim().split(/\r?\n/u)[0] ?? normalized
   return { hash, summary }

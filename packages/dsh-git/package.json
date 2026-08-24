@@ -5,25 +5,33 @@
   "private": true,
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
     "./client": "./lib/client.js",
-    "./types": { "types": "./lib/types/types.d.ts", "default": "./lib/types/types.js" },
+    "./types": { "types": "./lib/types.d.ts", "default": "./lib/types.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js", "lib/client.js", "lib/client.js.map",
-    "lib/types/**/*.js", "lib/types/**/*.d.ts",
+    "lib/index.js",
+    "lib/index.d.ts",
+    "lib/types.js",
+    "lib/types.d.ts",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml",
     "README.md"
   ],
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-api-gateway",
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
@@ -32,32 +40,31 @@
     "build": "pnpm build:host && pnpm build:client",
     "build:host": "tsdown --config tsdown.config.ts",
     "build:client": "tsdown --config tsdown.client.config.ts",
+    "dev:client": "tsdown --watch --config tsdown.client.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "prepare": "pnpm build"
   },
   "engines": { "node": "^22.19.0 || >=24.0.0" },
-  "dependencies": { "zod": "^4.4.3" },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-api-gateway": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-agent-default-model": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-api-gateway": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-agent-default-model": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-typert-generator": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",

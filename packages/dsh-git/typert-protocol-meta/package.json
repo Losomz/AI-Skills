@@ -1,6 +1,0 @@
-{
-  "name": "@deepseek-ai/dsh-typert-protocol",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./src/index.ts" }
-}

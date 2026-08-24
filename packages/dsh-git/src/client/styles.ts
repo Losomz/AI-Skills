@@ -5,7 +5,7 @@ const CSS = `
 .dshGitTrigger { width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; font: inherit; }
 .dshGitTrigger:hover, .dshGitTrigger[aria-expanded="true"] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .dshGitTriggerLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dshGitPanel { position: fixed; z-index: 80; pointer-events: auto; width: min(880px, calc(100vw - 32px)); height: min(720px, calc(100vh - 32px)); left: max(16px, var(--dsh-git-left, 72px)); bottom: 16px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; box-shadow: var(--dsw-shadow-lv1); overflow: hidden; }
+.dshGitPanel { position: fixed; z-index: 80; pointer-events: auto; width: min(520px, calc(100vw - 32px)); height: min(640px, calc(100vh - 72px)); top: 56px; right: 16px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; box-shadow: var(--dsw-shadow-lv1); overflow: hidden; }
 .dshGitHeader { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .dshGitTitle { min-width: 0; display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .dshGitBranch { color: var(--dsw-alias-label-secondary); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -25,11 +25,23 @@ const CSS = `
 .dshGitDiff pre { margin: 0; padding: 12px; min-width: max-content; white-space: pre; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .dshGitState { padding: 24px 16px; color: var(--dsw-alias-label-secondary); text-align: center; }
 .dshGitError { margin: 8px 12px; padding: 8px 10px; color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); border-radius: 6px; font-size: 12px; }
-.dshGitCommit { padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l1); }
-.dshGitCommit textarea { min-width: 0; min-height: 38px; max-height: 100px; resize: vertical; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; padding: 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: inherit; }
-.dshGitCommit button { min-width: 92px; border: 0; border-radius: 6px; padding: 0 14px; color: var(--dsw-alias-label-onbrand); background: var(--dsw-alias-brand-primary); font: inherit; font-weight: 600; cursor: pointer; }
-.dshGitCommit button:disabled { opacity: .5; cursor: default; }
-@media (max-width: 720px) { .dshGitPanel { left: 8px; right: 8px; bottom: 8px; width: auto; height: calc(100vh - 16px); } .dshGitBody { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 42%) minmax(0, 1fr); } .dshGitChanges { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); } }
+.dshGitSuccess { margin: 8px 12px; padding: 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); border-radius: 6px; font-size: 12px; }
+.dshGitCommit { padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.dshGitMessageField { position: relative; min-width: 0; }
+.dshGitCommit textarea { width: 100%; box-sizing: border-box; min-width: 0; min-height: 58px; max-height: 100px; resize: vertical; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; padding: 8px 42px 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: inherit; }
+.dshGitCommit textarea:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 1px; }
+.dshGitGenerate { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; padding: 0; color: var(--dsw-alias-button-info-fill); background: transparent; cursor: pointer; }
+.dshGitGenerate:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dshGitGenerate:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 1px; }
+.dshGitGenerate:disabled { opacity: .4; cursor: not-allowed; }
+.dshGitGenerate[aria-busy="true"] svg { animation: dshGitGeneratePulse 900ms ease-in-out infinite alternate; }
+.dshGitSubmit { width: 100%; min-width: 0; height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 6px; padding: 0 14px; color: var(--dsw-static-neutral-bluish-00); background: var(--dsw-alias-button-info-fill); font: inherit; font-weight: 600; cursor: pointer; transition: background-color 100ms ease, opacity 100ms ease; }
+.dshGitSubmit:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
+.dshGitSubmit:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 2px; }
+.dshGitSubmit:disabled { opacity: .4; cursor: not-allowed; }
+@keyframes dshGitGeneratePulse { from { opacity: .45; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .dshGitGenerate[aria-busy="true"] svg { animation: none; } }
+@media (max-width: 720px) { .dshGitPanel { top: 48px; right: 8px; bottom: 8px; left: 8px; width: auto; height: auto; } .dshGitBody { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 42%) minmax(0, 1fr); } .dshGitChanges { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); } }
 `
 
 export function installStyles(): () => void {

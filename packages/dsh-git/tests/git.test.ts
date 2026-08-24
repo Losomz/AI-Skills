@@ -8,9 +8,11 @@ import {
   GitOperationError,
   parsePorcelainV2,
   readDiff,
+  readStagedPromptContext,
   readStatus,
   resolveRepository,
   stagePaths,
+  truncatePatchForPrompt,
   unstagePaths,
 } from '../src/git.ts'
 
@@ -73,6 +75,34 @@ describe('Git workspace operations', () => {
     const committed = await createCommit(root, 'test: initial commit')
     expect(committed.hash).toMatch(/^[0-9a-f]{40}$/u)
     expect((await readStatus(root)).files).toEqual([])
+  })
+
+  it('rejects empty messages and commits with no staged changes', async () => {
+    const root = await repository()
+    await expect(createCommit(root, '   ')).rejects.toMatchObject<Partial<GitOperationError>>({
+      code: 'EMPTY_COMMIT_MESSAGE',
+    })
+    await writeFile(path.join(root, 'unstaged.txt'), 'not staged\n', 'utf8')
+    await expect(createCommit(root, 'test: should not commit')).rejects.toMatchObject<Partial<GitOperationError>>({
+      code: 'NOTHING_STAGED',
+    })
+    await expect(readStagedPromptContext(root)).rejects.toMatchObject<Partial<GitOperationError>>({
+      code: 'NOTHING_STAGED',
+    })
+  })
+
+  it('captures staged files and bounds the model patch on a line boundary', async () => {
+    const root = await repository()
+    await writeFile(path.join(root, 'staged.txt'), 'generated context\n', 'utf8')
+    await stagePaths(root, ['staged.txt'])
+    const context = await readStagedPromptContext(root)
+    expect(context.files).toEqual(['staged.txt'])
+    expect(context.patch).toContain('+generated context')
+
+    const bounded = truncatePatchForPrompt(`header\n${'change\n'.repeat(200)}`, 128)
+    expect(bounded.truncated).toBe(true)
+    expect(Buffer.byteLength(bounded.text, 'utf8')).toBeLessThanOrEqual(128)
+    expect(bounded.text).toContain('staged diff truncated')
   })
 
   it('rejects paths that escape the repository', async () => {

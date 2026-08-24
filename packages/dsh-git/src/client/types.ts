@@ -4,6 +4,8 @@ import type {
   GitCommitResult,
   GitDiffRequest,
   GitDiffResult,
+  GitGenerateCommitMessageRequest,
+  GitGenerateCommitMessageResult,
   GitPathsRequest,
   GitStatusSnapshot,
 } from '../types.ts'
@@ -13,6 +15,7 @@ export interface SourceControlFace {
   diff(request: GitDiffRequest): Promise<GitDiffResult>
   stage(request: GitPathsRequest): Promise<GitStatusSnapshot>
   unstage(request: GitPathsRequest): Promise<GitStatusSnapshot>
+  generateCommitMessage(request: GitGenerateCommitMessageRequest): Promise<GitGenerateCommitMessageResult>
   commit(request: GitCommitRequest): Promise<GitCommitResult>
 }
 

@@ -16,8 +16,8 @@ window.__ModuleLoader__.load({
 			if (change.kind === "conflicted") return "!";
 			return change.kind[0]?.toUpperCase() ?? "M";
 		}
-		/** Source Control trigger and fixed work panel mounted in the sidebar footer. */
-		function SourceControlPanel({ useSessions, useWorkspaces, status, diff, stage, unstage, commit }) {
+		/** Source Control header trigger with a viewport-fixed work panel. */
+		function SourceControlPanel({ useSessions, useWorkspaces, status, diff, stage, unstage, generateCommitMessage, commit }) {
 			const currentSession = useSessions((state) => state.current);
 			const workspace = useWorkspaces((state) => currentSession === void 0 ? void 0 : state.items.find((item) => item.sessionIds.includes(currentSession)));
 			const workspaceId = workspace === void 0 ? void 0 : String(workspace.workspaceId);
@@ -27,8 +27,9 @@ window.__ModuleLoader__.load({
 			const [diffResult, setDiffResult] = (0, react.useState)();
 			const [message, setMessage] = (0, react.useState)("");
 			const [busy, setBusy] = (0, react.useState)(false);
+			const [generating, setGenerating] = (0, react.useState)(false);
 			const [error, setError] = (0, react.useState)();
-			const [left, setLeft] = (0, react.useState)(72);
+			const [notice, setNotice] = (0, react.useState)();
 			const rootRef = (0, react.useRef)(null);
 			(0, _deepseek_ai_dsh_client_ui_primitives.useDismissOnOutsidePointer)(rootRef, open, setOpen);
 			const refresh = (0, react.useCallback)(async () => {
@@ -57,18 +58,6 @@ window.__ModuleLoader__.load({
 				refresh,
 				workspaceId
 			]);
-			(0, react.useLayoutEffect)(() => {
-				if (!open) return;
-				const place = () => {
-					const rect = rootRef.current?.getBoundingClientRect();
-					if (rect !== void 0) setLeft(Math.max(16, rect.right + 8));
-				};
-				place();
-				window.addEventListener("resize", place);
-				return () => {
-					window.removeEventListener("resize", place);
-				};
-			}, [open]);
 			const selectFile = async (change, staged) => {
 				if (workspaceId === void 0) return;
 				const next = {
@@ -108,15 +97,35 @@ window.__ModuleLoader__.load({
 					setBusy(false);
 				}
 			};
+			const generateMessage = async () => {
+				if (workspaceId === void 0) return;
+				setGenerating(true);
+				setError(void 0);
+				setNotice(void 0);
+				try {
+					const instruction = message.trim();
+					const result = await generateCommitMessage({
+						workspaceId,
+						...instruction === "" ? {} : { instruction }
+					});
+					setMessage(result.message);
+				} catch (cause) {
+					setError(messageOf(cause));
+				} finally {
+					setGenerating(false);
+				}
+			};
 			const createCommit = async () => {
 				if (workspaceId === void 0) return;
 				setBusy(true);
 				setError(void 0);
+				setNotice(void 0);
 				try {
-					await commit({
+					const result = await commit({
 						workspaceId,
 						message
 					});
+					setNotice(`Committed ${result.hash.slice(0, 7)}: ${result.summary}`);
 					setMessage("");
 					setSelection(void 0);
 					setDiffResult(void 0);
@@ -130,7 +139,6 @@ window.__ModuleLoader__.load({
 			const staged = snapshot?.files.filter((file) => file.staged) ?? [];
 			const changes = snapshot?.files.filter((file) => file.unstaged) ?? [];
 			const branch = snapshot?.detached ? "Detached HEAD" : snapshot?.branch ?? (snapshot?.unborn ? "New repository" : "");
-			const panelStyle = { "--dsh-git-left": `${left}px` };
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: "dshGitRoot",
 				ref: rootRef,
@@ -150,7 +158,6 @@ window.__ModuleLoader__.load({
 					})
 				}), open && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 					className: "dshGitPanel",
-					style: panelStyle,
 					"aria-label": "Source Control panel",
 					children: [
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
@@ -191,6 +198,40 @@ window.__ModuleLoader__.load({
 							})] })]
 						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "dshGitCommit",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "dshGitMessageField",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+									value: message,
+									onChange: (event) => {
+										setMessage(event.currentTarget.value);
+									},
+									placeholder: "输入提交说明，或输入要求后使用 AI 生成",
+									"aria-label": "提交说明",
+									"aria-busy": generating,
+									readOnly: generating
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+									label: generating ? "正在生成提交说明" : "AI 生成提交说明",
+									side: "right",
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: "dshGitGenerate",
+										disabled: busy || generating || workspaceId === void 0,
+										"aria-label": "AI 生成提交说明",
+										"aria-busy": generating,
+										onClick: () => void generateMessage(),
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSparkle16, {})
+									})
+								})]
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								className: "dshGitSubmit",
+								disabled: busy || generating || message.trim().length === 0,
+								onClick: () => void createCommit(),
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}), " 提交"]
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: "dshGitBody",
 							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: "dshGitChanges",
@@ -199,6 +240,11 @@ window.__ModuleLoader__.load({
 										className: "dshGitError",
 										role: "alert",
 										children: error
+									}),
+									notice && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: "dshGitSuccess",
+										role: "status",
+										children: notice
 									}),
 									workspaceId === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: "dshGitState",
@@ -254,22 +300,6 @@ window.__ModuleLoader__.load({
 									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", { children: diffResult.text || "No textual diff is available for this file." })] })
 								]
 							})]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
-							className: "dshGitCommit",
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
-								value: message,
-								onChange: (event) => {
-									setMessage(event.currentTarget.value);
-								},
-								placeholder: "Commit message",
-								"aria-label": "Commit message"
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-								type: "button",
-								disabled: busy || staged.length === 0 || message.trim().length === 0 || snapshot?.hasConflicts === true,
-								onClick: () => void createCommit(),
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}), " Commit"]
-							})]
 						})
 					]
 				})]
@@ -303,7 +333,7 @@ window.__ModuleLoader__.load({
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
 						label: staged ? "Unstage file" : "Stage file",
-						side: "left",
+						side: "right",
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: "dshGitIconButton",
 							role: "button",
@@ -327,7 +357,7 @@ window.__ModuleLoader__.load({
 .dshGitTrigger { width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; font: inherit; }
 .dshGitTrigger:hover, .dshGitTrigger[aria-expanded="true"] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .dshGitTriggerLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dshGitPanel { position: fixed; z-index: 80; pointer-events: auto; width: min(880px, calc(100vw - 32px)); height: min(720px, calc(100vh - 32px)); left: max(16px, var(--dsh-git-left, 72px)); bottom: 16px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; box-shadow: var(--dsw-shadow-lv1); overflow: hidden; }
+.dshGitPanel { position: fixed; z-index: 80; pointer-events: auto; width: min(520px, calc(100vw - 32px)); height: min(640px, calc(100vh - 72px)); top: 56px; right: 16px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; box-shadow: var(--dsw-shadow-lv1); overflow: hidden; }
 .dshGitHeader { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .dshGitTitle { min-width: 0; display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .dshGitBranch { color: var(--dsw-alias-label-secondary); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -347,11 +377,23 @@ window.__ModuleLoader__.load({
 .dshGitDiff pre { margin: 0; padding: 12px; min-width: max-content; white-space: pre; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .dshGitState { padding: 24px 16px; color: var(--dsw-alias-label-secondary); text-align: center; }
 .dshGitError { margin: 8px 12px; padding: 8px 10px; color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); border-radius: 6px; font-size: 12px; }
-.dshGitCommit { padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l1); }
-.dshGitCommit textarea { min-width: 0; min-height: 38px; max-height: 100px; resize: vertical; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; padding: 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: inherit; }
-.dshGitCommit button { min-width: 92px; border: 0; border-radius: 6px; padding: 0 14px; color: var(--dsw-alias-label-onbrand); background: var(--dsw-alias-brand-primary); font: inherit; font-weight: 600; cursor: pointer; }
-.dshGitCommit button:disabled { opacity: .5; cursor: default; }
-@media (max-width: 720px) { .dshGitPanel { left: 8px; right: 8px; bottom: 8px; width: auto; height: calc(100vh - 16px); } .dshGitBody { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 42%) minmax(0, 1fr); } .dshGitChanges { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); } }
+.dshGitSuccess { margin: 8px 12px; padding: 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); border-radius: 6px; font-size: 12px; }
+.dshGitCommit { padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.dshGitMessageField { position: relative; min-width: 0; }
+.dshGitCommit textarea { width: 100%; box-sizing: border-box; min-width: 0; min-height: 58px; max-height: 100px; resize: vertical; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; padding: 8px 42px 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: inherit; }
+.dshGitCommit textarea:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 1px; }
+.dshGitGenerate { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; padding: 0; color: var(--dsw-alias-button-info-fill); background: transparent; cursor: pointer; }
+.dshGitGenerate:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dshGitGenerate:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 1px; }
+.dshGitGenerate:disabled { opacity: .4; cursor: not-allowed; }
+.dshGitGenerate[aria-busy="true"] svg { animation: dshGitGeneratePulse 900ms ease-in-out infinite alternate; }
+.dshGitSubmit { width: 100%; min-width: 0; height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 6px; padding: 0 14px; color: var(--dsw-static-neutral-bluish-00); background: var(--dsw-alias-button-info-fill); font: inherit; font-weight: 600; cursor: pointer; transition: background-color 100ms ease, opacity 100ms ease; }
+.dshGitSubmit:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
+.dshGitSubmit:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 2px; }
+.dshGitSubmit:disabled { opacity: .4; cursor: not-allowed; }
+@keyframes dshGitGeneratePulse { from { opacity: .45; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .dshGitGenerate[aria-busy="true"] svg { animation: none; } }
+@media (max-width: 720px) { .dshGitPanel { top: 48px; right: 8px; bottom: 8px; left: 8px; width: auto; height: auto; } .dshGitBody { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 42%) minmax(0, 1fr); } .dshGitChanges { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); } }
 `;
 		function installStyles() {
 			if (typeof document === "undefined") return () => void 0;
@@ -366,9 +408,9 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/index.ts
-		const inject = ["slots"];
+		const inject = ["slots", "connection"];
 		const EMPTY_STATUS = {
-			repositoryRoot: "",
+			root: "",
 			branch: "main",
 			detached: false,
 			unborn: false,
@@ -377,28 +419,51 @@ window.__ModuleLoader__.load({
 			hasConflicts: false,
 			files: []
 		};
-		const panelPreview = {
-			status: async () => EMPTY_STATUS,
-			diff: async (request) => ({
-				path: request.path,
-				staged: request.staged,
-				text: ""
-			}),
-			stage: async () => EMPTY_STATUS,
-			unstage: async () => EMPTY_STATUS,
-			commit: async () => {
-				throw new Error("Git Host connection is not enabled yet.");
-			}
-		};
-		/** Register the Source Control panel before Host Git wiring is added. */
+		/** Register the Source Control panel and its local Host commit caller. */
 		function apply(ctx) {
+			const connection = ctx.connection;
+			const panelFace = {
+				status: async () => EMPTY_STATUS,
+				diff: async (request) => ({
+					path: request.path,
+					staged: request.staged,
+					text: "",
+					binary: false,
+					truncated: false
+				}),
+				stage: async () => EMPTY_STATUS,
+				unstage: async () => EMPTY_STATUS,
+				generateCommitMessage: async (request) => {
+					const result = await connection.rpc.call("/dsh-git", "generate-commit-message", request);
+					if (!result.ok) throw new Error(result.error.message);
+					return parseGenerateResult(result.value);
+				},
+				commit: async (request) => {
+					const result = await connection.rpc.call("/dsh-git", "commit", request);
+					if (!result.ok) throw new Error(result.error.message);
+					return parseCommitResult(result.value);
+				}
+			};
 			ctx.effect(() => installStyles(), "dsh-git: styles");
 			ctx.slots.inject("conversation.session.header.utilities", () => ctx.slots.register({
 				name: "conversation.session.header.utilities",
 				id: "source-control",
 				order: -10,
-				inject: () => panelPreview
+				inject: () => panelFace
 			}, SourceControlPanel));
+		}
+		function parseGenerateResult(value) {
+			if (typeof value !== "object" || value === null || typeof value.message !== "string") throw new Error("Git Host returned an invalid generated commit message");
+			return { message: value.message };
+		}
+		function parseCommitResult(value) {
+			if (typeof value !== "object" || value === null) throw new Error("Git Host returned an invalid commit result");
+			const result = value;
+			if (typeof result.hash !== "string" || typeof result.summary !== "string") throw new Error("Git Host returned an invalid commit result");
+			return {
+				hash: result.hash,
+				summary: result.summary
+			};
 		}
 		//#endregion
 		exports.apply = apply;

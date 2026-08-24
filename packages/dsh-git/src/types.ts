@@ -50,6 +50,15 @@ export interface GitPathsRequest {
   paths: string[]
 }
 
+export interface GitGenerateCommitMessageRequest {
+  workspaceId: string
+  instruction?: string
+}
+
+export interface GitGenerateCommitMessageResult {
+  message: string
+}
+
 export interface GitCommitRequest {
   workspaceId: string
   message: string

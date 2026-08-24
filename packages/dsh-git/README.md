@@ -29,31 +29,29 @@ A source-only `--patch` entry can load the Host half, but it does not expose the
 
 ## UI
 
-The Client registers one additive `sidebar.footer.action` entry. Its trigger opens a fixed Source Control panel with:
+The Client registers an additive `conversation.session.header.utilities` entry. Its trigger opens a viewport-fixed Source Control panel at the top right. The current milestone provides:
 
-- branch and repository status
-- staged and unstaged file groups
-- text diff preview
-- file-level stage and unstage actions
-- local commit of staged changes
+- an editable commit-message field
+- local commit of already-staged changes
+- one-click AI commit-message generation from the staged patch
 
-## Remote API
+The Sparkle action sends the staged patch and the optional text already in the field to the model configured as the DSH default. It uses one independent `ctx.llm.stream()` call: it does not create an Agent or Session, read conversation history, or add messages to the current conversation. The staged patch leaves the Host only after the user clicks the action and is limited to 200 KB before model dispatch.
 
-The generated strict Typert contribution exposes the `sourceControl` namespace:
+## Host RPC
 
-- `repositoryInfo(workspaceId)`
-- `status(workspaceId)`
-- `diff({ workspaceId, path, staged })`
-- `stage({ workspaceId, paths })`
-- `unstage({ workspaceId, paths })`
+The Host registers the loopback-only `/dsh-git` Connection RPC channel:
+
 - `commit({ workspaceId, message })`
+- `generate-commit-message({ workspaceId, instruction? })`
 
-`tsdown` runs the official `@deepseek-ai/dsh-typert-generator` plugin during the Host build and emits `lib/typert.host.*` plus `lib/typert.remote-client.*`. The Client mounts that generated contribution before registering its UI.
+Both endpoints resolve `workspaceId` through the Host workspace registry. The Client cannot supply a repository path or staged patch. AI generation uses `ctx.agentDefaultModel.currentSelection()` and the configured DSH LLM adapter; the plugin stores no provider credential.
 
 ## Known Limitations
 
-- The first release operates on one Git repository rooted at or below the current registered workspace.
+- Status, diff, stage, and unstage UI callbacks still use preview data and will be connected in later milestones. Stage changes with local Git before using Commit or AI generation.
+- The current release operates on one Git repository rooted at or below the current registered workspace.
 - Parent repositories, nested repository orchestration, submodules, worktrees, branch management, pull, push, discard, and partial-line staging are not implemented.
-- Diff display is limited to 512 KiB per request. Binary files receive a non-text fallback.
+- Diff display is limited to 512 KiB per request. AI staged-patch context is limited to 200 KB. Binary files receive Git's non-text summary.
+- AI generation uses the global DSH default model rather than a conversation-specific temporary model selection.
 - Git hooks may run during commit. Interactive credential prompts are disabled, and commit signing is disabled for the non-interactive UI operation.
-- File watching is not installed; use Refresh after external changes.
+- File watching is not installed for repository changes; use Refresh after external changes. Client source changes use the development bundle watcher, while Host changes require restarting DSH Desktop.

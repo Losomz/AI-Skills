@@ -36,6 +36,13 @@ interface GitPathsRequest {
   workspaceId: string;
   paths: string[];
 }
+interface GitGenerateCommitMessageRequest {
+  workspaceId: string;
+  instruction?: string;
+}
+interface GitGenerateCommitMessageResult {
+  message: string;
+}
 interface GitCommitRequest {
   workspaceId: string;
   message: string;
@@ -45,4 +52,4 @@ interface GitCommitResult {
   summary: string;
 }
 //#endregion
-export { GitChangeKind, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitFileChange, GitPathsRequest, GitRepositoryInfo, GitStatusSnapshot };
+export { GitChangeKind, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitFileChange, GitGenerateCommitMessageRequest, GitGenerateCommitMessageResult, GitPathsRequest, GitRepositoryInfo, GitStatusSnapshot };

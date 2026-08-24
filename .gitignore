@@ -7,3 +7,7 @@ node_modules/
 # Generated local AI tool configs
 /.pi/
 /.opencode/
+
+# Local build and upstream-inspection residue
+*.tsbuildinfo
+/.tmp-dsh-upstream/
