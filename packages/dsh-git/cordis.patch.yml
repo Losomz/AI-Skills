@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-agentframework-git
+      name: dsh-agentframework-git
+      config: {}
