@@ -86,6 +86,41 @@ export interface GitGenerateCommitMessageResult {
   message: string
 }
 
+export type GitCommitLanguage = 'auto' | 'zh-CN' | 'en'
+
+export interface GitModelSelection {
+  provider: string
+  model: string
+}
+
+export interface GitSettingsValue {
+  language: GitCommitLanguage
+  modelSelection: GitModelSelection | null
+}
+
+export interface GitCatalogModel {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface GitCatalogProvider {
+  id: string
+  name: string
+  models: GitCatalogModel[]
+}
+
+export interface GitCatalogFailure {
+  provider: string
+  message: string
+}
+
+export interface GitModelCatalogResult {
+  defaultSelection: GitModelSelection
+  providers: GitCatalogProvider[]
+  failures: GitCatalogFailure[]
+}
+
 export interface GitCommitRequest {
   workspaceId: string
   message: string

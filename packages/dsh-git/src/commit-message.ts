@@ -1,10 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm'
 import { GitOperationError } from './git.ts'
 import type { GitStagedPromptContext } from './git.ts'
-import type { GitGenerateCommitMessageResult } from './types.ts'
+import { languageRequirement } from './settings.ts'
+import type { GitCommitLanguage, GitGenerateCommitMessageResult } from './types.ts'
 
 const MAX_GENERATED_MESSAGE_BYTES = 64 * 1024
 
@@ -16,11 +17,17 @@ Rules:
 - Follow the additional user requirement when one is provided.
 - Output only the commit message, with no preamble, quotes, Markdown fences, or Git trailers.`
 
-export function buildCommitMessagePrompt(context: GitStagedPromptContext, instruction: string): string {
+export function buildCommitMessagePrompt(
+  context: GitStagedPromptContext,
+  instruction: string,
+  language: GitCommitLanguage = 'auto',
+): string {
   const requirement = instruction.trim()
   return [
     `Branch: ${context.branch ?? '(detached HEAD)'}`,
     `Staged files:\n${context.files.map(path => `- ${path}`).join('\n')}`,
+    languageRequirement(language),
+    'An explicit language in the additional user requirement overrides the default language.',
     requirement === '' ? 'Additional user requirement: (none)' : `Additional user requirement:\n${requirement}`,
     `<staged-diff${context.truncated ? ' truncated="true"' : ''}>`,
     context.patch,
@@ -48,12 +55,13 @@ export async function generateCommitMessage(
   staged: GitStagedPromptContext,
   instruction: string,
   signal: AbortSignal,
+  selection: Pick<GenerateOptions, 'provider' | 'model' | 'reasoningEffort'>,
+  language: GitCommitLanguage,
 ): Promise<GitGenerateCommitMessageResult> {
-  const selection = ctx.agentDefaultModel.currentSelection()
   const assembler = new BlockAssembler()
   const userMessage = createUserMessage({
     source: { kind: 'plugin', plugin: 'dsh-agentframework-git' },
-    content: [{ type: 'text', text: buildCommitMessagePrompt(staged, instruction) }],
+    content: [{ type: 'text', text: buildCommitMessagePrompt(staged, instruction, language) }],
   })
   for await (const chunk of ctx.llm.stream({
     ...selection,

@@ -7,9 +7,15 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./client": "./lib/client.js",
-    "./types": { "types": "./lib/types.d.ts", "default": "./lib/types.js" },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -32,7 +38,9 @@
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
       ]
     }
   },
@@ -46,15 +54,21 @@
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "prepare": "pnpm build"
   },
-  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent-default-model": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings-plugins": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2"
+    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -63,9 +77,13 @@
     "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings-plugins": "0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-settings": "0.1.1-rc.2",
     "@deepseek-ai/dsh-workspace": "^0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.1",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "react": "^18.3.1",

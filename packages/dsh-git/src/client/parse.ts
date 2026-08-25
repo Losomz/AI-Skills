@@ -5,6 +5,9 @@ import type {
   GitDiffResult,
   GitFileChange,
   GitGenerateCommitMessageResult,
+  GitModelCatalogResult,
+  GitModelSelection,
+  GitSettingsValue,
   GitStatusSnapshot,
 } from '../types.ts'
 
@@ -81,6 +84,61 @@ export function parseDiff(value: unknown): GitDiffResult {
     return { ...base, kind: 'too-large', limitBytes: diff.limitBytes as number }
   }
   throw new Error('Git Host returned an invalid diff')
+}
+
+export function parseGitSettings(value: unknown): GitSettingsValue | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const settings = value as Record<string, unknown>
+  if (settings.language !== 'auto' && settings.language !== 'zh-CN' && settings.language !== 'en') return undefined
+  let modelSelection: GitModelSelection | null = null
+  if (settings.modelSelection !== undefined && settings.modelSelection !== null) {
+    if (typeof settings.modelSelection !== 'object' || settings.modelSelection === null || Array.isArray(settings.modelSelection)) return undefined
+    const model = settings.modelSelection as Record<string, unknown>
+    if (typeof model.provider !== 'string' || model.provider.length === 0 || typeof model.model !== 'string' || model.model.length === 0) return undefined
+    modelSelection = { provider: model.provider, model: model.model }
+  }
+  return {
+    language: settings.language,
+    ...(modelSelection === undefined ? {} : { modelSelection }),
+  }
+}
+
+export function parseModelCatalog(value: unknown): GitModelCatalogResult {
+  const catalog = recordOf(value, 'model catalog')
+  const defaultSelection = parseGitSettings({ language: 'auto', modelSelection: catalog.defaultSelection })?.modelSelection
+  if (defaultSelection === undefined || !Array.isArray(catalog.providers) || !Array.isArray(catalog.failures)) {
+    throw new Error('Git Host returned an invalid model catalog')
+  }
+  const providers = catalog.providers.map((raw) => {
+    const provider = recordOf(raw, 'model provider')
+    if (typeof provider.id !== 'string' || typeof provider.name !== 'string' || !Array.isArray(provider.models)) {
+      throw new Error('Git Host returned an invalid model provider')
+    }
+    return {
+      id: provider.id,
+      name: provider.name,
+      models: provider.models.map((rawModel) => {
+        const model = recordOf(rawModel, 'catalog model')
+        if (
+          typeof model.id !== 'string' || typeof model.name !== 'string' ||
+          (model.description !== undefined && typeof model.description !== 'string')
+        ) throw new Error('Git Host returned an invalid catalog model')
+        return {
+          id: model.id,
+          name: model.name,
+          ...(model.description === undefined ? {} : { description: model.description }),
+        }
+      }),
+    }
+  })
+  const failures = catalog.failures.map((raw) => {
+    const failure = recordOf(raw, 'catalog failure')
+    if (typeof failure.provider !== 'string' || typeof failure.message !== 'string') {
+      throw new Error('Git Host returned an invalid catalog failure')
+    }
+    return { provider: failure.provider, message: failure.message }
+  })
+  return { defaultSelection, providers, failures }
 }
 
 export function parseGenerateResult(value: unknown): GitGenerateCommitMessageResult {

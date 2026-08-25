@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseDiff, parseStatus } from '../src/client/parse.ts'
+import { parseDiff, parseGitSettings, parseModelCatalog, parseStatus } from '../src/client/parse.ts'
 
 const status = {
   root: 'C:/repo',
@@ -21,6 +21,25 @@ describe('Client Git wire parsers', () => {
       kind: 'text',
       hunks: [{ oldText: 'old\n', newText: 'new\n' }],
     })).toMatchObject({ kind: 'text', hunks: [{ oldText: 'old\n', newText: 'new\n' }] })
+  })
+
+  it('accepts Git settings and model catalogs while rejecting malformed values', () => {
+    expect(parseGitSettings({
+      language: 'zh-CN',
+      modelSelection: { provider: 'provider', model: 'model' },
+    })).toEqual({ language: 'zh-CN', modelSelection: { provider: 'provider', model: 'model' } })
+    expect(parseGitSettings({ language: 'unknown' })).toBeUndefined()
+
+    expect(parseModelCatalog({
+      defaultSelection: { provider: 'provider', model: 'model' },
+      providers: [{ id: 'provider', name: 'Provider', models: [{ id: 'model', name: 'Model' }] }],
+      failures: [],
+    })).toMatchObject({ defaultSelection: { provider: 'provider', model: 'model' } })
+    expect(() => parseModelCatalog({
+      defaultSelection: { provider: 'provider', model: 'model' },
+      providers: [{ id: 'provider', name: 'Provider', models: [{ id: 1, name: 'Model' }] }],
+      failures: [],
+    })).toThrow('invalid catalog model')
   })
 
   it('rejects malformed status files and diff union members', () => {

@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node", "react"]
   },
-  "include": ["src/index.ts", "src/git.ts", "src/commit-message.ts", "src/types.ts"]
+  "include": ["src/index.ts", "src/git.ts", "src/commit-message.ts", "src/model-catalog.ts", "src/settings.ts", "src/types.ts"]
 }

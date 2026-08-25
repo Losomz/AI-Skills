@@ -40,6 +40,13 @@ describe('AI commit-message generation', () => {
     expect(prompt).toContain('+add sparkle button')
   })
 
+  it('includes the configured language and lets an explicit requirement override it', () => {
+    const prompt = buildCommitMessagePrompt(staged, 'Write this one in English', 'zh-CN')
+    expect(prompt).toContain('Default language: Simplified Chinese')
+    expect(prompt).toContain('explicit language in the additional user requirement overrides')
+    expect(prompt).toContain('Write this one in English')
+  })
+
   it('cleans fences and one-line quotes from model output', () => {
     expect(cleanGeneratedCommitMessage('```text\nfeat: generate commit messages\n```'))
       .toBe('feat: generate commit messages')
@@ -47,14 +54,21 @@ describe('AI commit-message generation', () => {
     expect(() => cleanGeneratedCommitMessage('   ')).toThrowError(GitOperationError)
   })
 
-  it('uses the configured default model without attaching a session', async () => {
+  it('uses the settings-selected model without attaching a session', async () => {
     let request: GenerateOptions | undefined
     const ctx = contextWith([
       { type: 'text-delta', index: 0, text: 'feat: generate commit messages' },
       { type: 'finish', reason: { kind: 'stop' } },
     ], value => { request = value })
 
-    await expect(generateCommitMessage(ctx, staged, 'keep it concise', new AbortController().signal))
+    await expect(generateCommitMessage(
+      ctx,
+      staged,
+      'keep it concise',
+      new AbortController().signal,
+      { provider: 'configured', model: 'default-model' },
+      'auto',
+    ))
       .resolves.toEqual({ message: 'feat: generate commit messages' })
     expect(request).toMatchObject({
       provider: 'configured',
@@ -69,7 +83,14 @@ describe('AI commit-message generation', () => {
     const ctx = contextWith([
       { type: 'finish', reason: { kind: 'error', failure: { code: 'OFFLINE', message: 'model offline' } } },
     ], () => undefined)
-    await expect(generateCommitMessage(ctx, staged, '', new AbortController().signal))
+    await expect(generateCommitMessage(
+      ctx,
+      staged,
+      '',
+      new AbortController().signal,
+      { provider: 'configured', model: 'default-model' },
+      'auto',
+    ))
       .rejects.toMatchObject<Partial<GitOperationError>>({ code: 'AI_GENERATION_FAILED', message: 'model offline' })
   })
 })

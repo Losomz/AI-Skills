@@ -16,6 +16,13 @@ import {
   stagePaths,
   unstagePaths,
 } from './git.ts'
+import { readModelCatalog } from './model-catalog.ts'
+import {
+  configuredModel,
+  GitSettingsSchema,
+  installGitSettings,
+} from './settings.ts'
+import type { GitSettings } from './settings.ts'
 import type {
   GitCommitRequest,
   GitDiffRequest,
@@ -32,14 +39,21 @@ const MAX_PATHS_PER_REQUEST = 256
 /** Host service exposing workspace-confined local Git operations to the DSH Client. */
 export class SourceControlService extends Service {
   static inject = ['workspaceRegistry', 'connection', 'llm', 'agentDefaultModel']
+  static Config = GitSettingsSchema
   private readonly mutations = new RepositoryMutationQueue()
+  private readonly settings: () => GitSettings
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: GitSettings) {
     super(ctx, 'sourceControl')
+    this.settings = installGitSettings(ctx, config)
     ctx.effect(() => ctx.connection.rpc.handle(
       RPC_CHANNEL,
       async (endpoint, payload, signal) => {
         try {
+          if (endpoint === 'model-catalog') {
+            requestRecord(payload)
+            return { ok: true, value: await readModelCatalog(ctx) }
+          }
           if (endpoint === 'status') {
             const request = requestRecord(payload)
             const root = await this.repositoryRoot(workspaceIdOf(request))
@@ -77,7 +91,16 @@ export class SourceControlService extends Service {
             const request = parseGenerateRequest(payload)
             const root = await this.repositoryRoot(request.workspaceId)
             const staged = await this.mutations.run(root, async () => await readStagedPromptContext(root))
-            const value = await generateCommitMessage(ctx, staged, request.instruction ?? '', signal)
+            const settings = this.settings()
+            const selection = configuredModel(settings, ctx.agentDefaultModel.currentSelection())
+            const value = await generateCommitMessage(
+              ctx,
+              staged,
+              request.instruction ?? '',
+              signal,
+              selection,
+              settings.language,
+            )
             return { ok: true, value }
           }
           return { ok: false, error: { code: 'internal', message: `Unknown Git endpoint '${endpoint}'`, details: {} } }

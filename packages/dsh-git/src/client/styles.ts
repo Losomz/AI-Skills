@@ -46,6 +46,21 @@ const CSS = `
 .dshGitSubmit:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
 .dshGitSubmit:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 2px; }
 .dshGitSubmit:disabled { opacity: .4; cursor: not-allowed; }
+.dshGitSettingsCard { box-sizing: border-box; width: 100%; list-style: none; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 14px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); }
+.dshGitSettingsHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dshGitSettingsHead h3 { margin: 0; font-size: 14px; line-height: 22px; font-weight: 600; }
+.dshGitSettingsHead p { margin: 2px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.dshGitSettingsFields { display: grid; gap: 14px; margin-top: 16px; }
+.dshGitSettingsField { min-width: 0; display: grid; gap: 7px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dshGitSettingsField select { box-sizing: border-box; width: 100%; height: 36px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 0 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: inherit; font-size: 13px; }
+.dshGitSettingsField select:focus-visible { outline: 2px solid var(--dsw-alias-border-l3); outline-offset: 1px; }
+.dshGitSettingsSegments { width: fit-content; display: inline-grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 2px; background: var(--dsw-alias-bg-base); }
+.dshGitSettingsSegments button { min-width: 110px; height: 30px; border: 0; border-radius: 4px; padding: 0 10px; color: var(--dsw-alias-label-secondary); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.dshGitSettingsSegments button[data-active="true"] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); font-weight: 600; }
+.dshGitSettingsSegments button:disabled, .dshGitSettingsField select:disabled { opacity: .45; cursor: default; }
+.dshGitSettingsNote, .dshGitSettingsError { margin: 10px 0 0; font-size: 12px; line-height: 18px; }
+.dshGitSettingsNote { color: var(--dsw-alias-label-secondary); }
+.dshGitSettingsError { color: var(--dsw-alias-state-error-primary); }
 @keyframes dshGitGeneratePulse { from { opacity: .45; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .dshGitGenerate[aria-busy="true"] svg { animation: none; } }
 @media (max-width: 720px) { .dshGitPanel { top: 48px; right: 8px; bottom: 8px; left: 8px; width: auto; height: auto; } }

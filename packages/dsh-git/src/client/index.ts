@@ -1,8 +1,12 @@
+import { createElement as h } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+import { GitSettingsCard } from './GitSettingsCard.tsx'
 import { SourceControlPanel } from './SourceControlPanel.tsx'
-import { parseCommitResult, parseDiff, parseGenerateResult, parseStatus } from './parse.ts'
+import { parseCommitResult, parseDiff, parseGenerateResult, parseGitSettings, parseModelCatalog, parseStatus } from './parse.ts'
 import { installStyles } from './styles.ts'
 import type { SourceControlFace } from './types.ts'
 
@@ -21,6 +25,7 @@ export function apply(ctx: ClientContext): void {
     diff: async request => parseDiff(await call('diff', request)),
     stage: async request => parseStatus(await call('stage', request)),
     unstage: async request => parseStatus(await call('unstage', request)),
+    modelCatalog: async () => parseModelCatalog(await call('model-catalog', {})),
     generateCommitMessage: async request => parseGenerateResult(await call('generate-commit-message', request)),
     commit: async request => parseCommitResult(await call('commit', request)),
   }
@@ -31,4 +36,12 @@ export function apply(ctx: ClientContext): void {
     order: -10,
     inject: (): SourceControlFace => panelFace,
   }, SourceControlPanel))
+  ctx.inject(['settingsScope'], (scoped) => {
+    const settings = scoped.settingsScope.bind({ namespace: 'dsh-git', decode: parseGitSettings })
+    scoped.slots.inject('settings.plugin.item', () => scoped.slots.register({
+      name: 'settings.plugin.item',
+      key: 'dsh-git',
+      inject: () => ({ settings, modelCatalog: panelFace.modelCatalog }),
+    }, () => h(GitSettingsCard, { scope: settings, loadCatalog: panelFace.modelCatalog })))
+  })
 }
