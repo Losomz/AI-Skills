@@ -6,6 +6,7 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 //#region src/git.ts
 const MAX_OUTPUT_BYTES = 2097152;
+const MAX_DIFF_BYTES = 524288;
 const STAGED_PATCH_PROMPT_BYTES = 2e5;
 const COMMAND_TIMEOUT_MS = 3e4;
 var GitOperationError = class extends Error {
@@ -47,21 +48,27 @@ function runGit(cwd, args, options = {}) {
 		const maxBytes = options.maxBytes ?? MAX_OUTPUT_BYTES;
 		let size = 0;
 		let settled = false;
+		let terminationError;
 		const rejectOnce = (error) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
 			reject(error);
 		};
-		const timer = setTimeout(() => {
+		const terminate = (error) => {
+			if (settled || terminationError !== void 0) return;
+			terminationError = error;
+			clearTimeout(timer);
 			child.kill();
-			rejectOnce(new GitOperationError("GIT_TIMEOUT", "Git operation timed out"));
+		};
+		const timer = setTimeout(() => {
+			terminate(new GitOperationError("GIT_TIMEOUT", "Git operation timed out"));
 		}, COMMAND_TIMEOUT_MS);
 		const collect = (target, chunk) => {
+			if (terminationError !== void 0) return;
 			size += chunk.byteLength;
 			if (size > maxBytes) {
-				child.kill();
-				rejectOnce(new GitOperationError("GIT_OUTPUT_LIMIT", "Git output exceeded the safety limit"));
+				terminate(new GitOperationError("GIT_OUTPUT_LIMIT", "Git output exceeded the safety limit"));
 				return;
 			}
 			target.push(chunk);
@@ -79,6 +86,10 @@ function runGit(cwd, args, options = {}) {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			if (terminationError !== void 0) {
+				reject(terminationError);
+				return;
+			}
 			const exitCode = code ?? -1;
 			const errorText = Buffer.concat(stderr).toString("utf8").trim();
 			if (exitCode !== 0 && !(options.allowExitCodes ?? []).includes(exitCode)) {
@@ -118,6 +129,12 @@ async function resolveRepository(workspacePath) {
 	const root = await realpath(result.stdout.toString("utf8").trim());
 	if (!isWithin(workspace, root)) throw new GitOperationError("REPOSITORY_OUTSIDE_WORKSPACE", "The Git repository root is outside the selected workspace");
 	return root;
+}
+function validateRelativePath(repoRoot, value) {
+	if (value.length === 0 || value.includes("\0") || path.isAbsolute(value)) throw new GitOperationError("INVALID_PATH", "Git paths must be non-empty repository-relative paths");
+	const normalized = value.replaceAll("\\", "/");
+	if (!isWithin(repoRoot, path.resolve(repoRoot, ...normalized.split("/")))) throw new GitOperationError("INVALID_PATH", "Git path escapes the repository");
+	return normalized;
 }
 function changeKind(x, y) {
 	const code = x !== "." ? x : y;
@@ -223,6 +240,139 @@ async function readStatus(repoRoot) {
 		])).stdout),
 		root: repoRoot
 	};
+}
+function parseUnifiedDiff(text) {
+	const hunks = [];
+	let inHunk = false;
+	let removed = [];
+	let added = [];
+	const flush = () => {
+		if (removed.length === 0 && added.length === 0) return;
+		hunks.push({
+			oldText: removed.length === 0 ? null : `${removed.join("\n")}\n`,
+			newText: added.length === 0 ? "" : `${added.join("\n")}\n`
+		});
+		removed = [];
+		added = [];
+	};
+	for (const line of text.split("\n")) {
+		if (line.startsWith("@@")) {
+			flush();
+			inHunk = true;
+			continue;
+		}
+		if (!inHunk) continue;
+		if (line.startsWith("diff --git ")) {
+			flush();
+			inHunk = false;
+			continue;
+		}
+		if (line.startsWith("\\ No newline at end of file")) continue;
+		if (line.startsWith("-")) {
+			removed.push(line.slice(1));
+			continue;
+		}
+		if (line.startsWith("+")) {
+			added.push(line.slice(1));
+			continue;
+		}
+		flush();
+	}
+	flush();
+	return hunks;
+}
+async function readDiff(repoRoot, requestedPath, staged, requestedOriginalPath) {
+	const relativePath = validateRelativePath(repoRoot, requestedPath);
+	const originalPath = requestedOriginalPath === void 0 ? void 0 : validateRelativePath(repoRoot, requestedOriginalPath);
+	const change = (await readStatus(repoRoot)).files.find((file) => file.path === relativePath);
+	const untracked = !staged && change?.kind === "untracked";
+	const args = untracked ? [
+		"--no-pager",
+		"diff",
+		"--no-index",
+		"--no-ext-diff",
+		"--no-textconv",
+		"--no-color",
+		"--unified=3",
+		"--",
+		"/dev/null",
+		relativePath
+	] : [
+		"--no-pager",
+		"diff",
+		"--no-ext-diff",
+		"--no-textconv",
+		"--no-color",
+		"--unified=3",
+		...staged ? ["--cached"] : [],
+		"--",
+		...originalPath === void 0 ? [] : [originalPath],
+		relativePath
+	];
+	let text;
+	try {
+		text = (await runGit(repoRoot, args, {
+			maxBytes: MAX_DIFF_BYTES,
+			...untracked ? { allowExitCodes: [1] } : {}
+		})).stdout.toString("utf8");
+	} catch (error) {
+		if (!(error instanceof GitOperationError) || error.code !== "GIT_OUTPUT_LIMIT") throw error;
+		return {
+			path: relativePath,
+			staged,
+			kind: "too-large",
+			limitBytes: MAX_DIFF_BYTES
+		};
+	}
+	if (/^Binary files .* differ$/mu.test(text)) return {
+		path: relativePath,
+		staged,
+		kind: "binary"
+	};
+	const hunks = parseUnifiedDiff(text);
+	return hunks.length === 0 ? {
+		path: relativePath,
+		staged,
+		kind: "empty"
+	} : {
+		path: relativePath,
+		staged,
+		kind: "text",
+		hunks
+	};
+}
+async function stagePaths(repoRoot, paths) {
+	if (paths.length === 0) throw new GitOperationError("EMPTY_PATHS", "Select at least one file");
+	await runGit(repoRoot, [
+		"--literal-pathspecs",
+		"add",
+		"--",
+		...paths.map((value) => validateRelativePath(repoRoot, value))
+	]);
+}
+async function unstagePaths(repoRoot, paths) {
+	if (paths.length === 0) throw new GitOperationError("EMPTY_PATHS", "Select at least one file");
+	const safePaths = paths.map((value) => validateRelativePath(repoRoot, value));
+	if ((await runGit(repoRoot, [
+		"rev-parse",
+		"--verify",
+		"HEAD"
+	], { allowExitCodes: [1, 128] })).exitCode === 0) await runGit(repoRoot, [
+		"--literal-pathspecs",
+		"reset",
+		"-q",
+		"HEAD",
+		"--",
+		...safePaths
+	]);
+	else await runGit(repoRoot, [
+		"--literal-pathspecs",
+		"rm",
+		"--cached",
+		"-q",
+		"--",
+		...safePaths
+	]);
 }
 function truncatePatchForPrompt(text, budget = STAGED_PATCH_PROMPT_BYTES) {
 	const source = Buffer.from(text, "utf8");
@@ -362,6 +512,7 @@ async function generateCommitMessage(ctx, staged, instruction, signal) {
 //#region src/index.ts
 const RPC_CHANNEL = "/dsh-git";
 const MAX_INSTRUCTION_BYTES = 16384;
+const MAX_PATHS_PER_REQUEST = 256;
 /** Host service exposing workspace-confined local Git operations to the DSH Client. */
 var SourceControlService = class extends Service {
 	static inject = [
@@ -375,6 +526,34 @@ var SourceControlService = class extends Service {
 		super(ctx, "sourceControl");
 		ctx.effect(() => ctx.connection.rpc.handle(RPC_CHANNEL, async (endpoint, payload, signal) => {
 			try {
+				if (endpoint === "status") {
+					const request = requestRecord(payload);
+					const root = await this.repositoryRoot(workspaceIdOf(request));
+					return {
+						ok: true,
+						value: await this.mutations.run(root, async () => await readStatus(root))
+					};
+				}
+				if (endpoint === "diff") {
+					const request = parseDiffRequest(payload);
+					const root = await this.repositoryRoot(request.workspaceId);
+					return {
+						ok: true,
+						value: await this.mutations.run(root, async () => await readDiff(root, request.path, request.staged, request.originalPath))
+					};
+				}
+				if (endpoint === "stage" || endpoint === "unstage") {
+					const request = parsePathsRequest(payload);
+					const root = await this.repositoryRoot(request.workspaceId);
+					return {
+						ok: true,
+						value: await this.mutations.run(root, async () => {
+							if (endpoint === "stage") await stagePaths(root, request.paths);
+							else await unstagePaths(root, request.paths);
+							return await readStatus(root);
+						})
+					};
+				}
 				if (endpoint === "commit") {
 					const request = parseCommitRequest(payload);
 					const root = await this.repositoryRoot(request.workspaceId);
@@ -424,6 +603,26 @@ function requestRecord(payload) {
 function workspaceIdOf(value) {
 	if (typeof value.workspaceId !== "string" || value.workspaceId.length === 0) throw new GitOperationError("INVALID_REQUEST", "Git request requires a workspaceId");
 	return value.workspaceId;
+}
+function parseDiffRequest(payload) {
+	const value = requestRecord(payload);
+	if (typeof value.path !== "string" || typeof value.staged !== "boolean") throw new GitOperationError("INVALID_REQUEST", "Git diff requires a path and staged flag");
+	if (value.originalPath !== void 0 && typeof value.originalPath !== "string") throw new GitOperationError("INVALID_REQUEST", "Git diff originalPath must be a string");
+	return {
+		workspaceId: workspaceIdOf(value),
+		path: value.path,
+		staged: value.staged,
+		...value.originalPath === void 0 ? {} : { originalPath: value.originalPath }
+	};
+}
+function parsePathsRequest(payload) {
+	const value = requestRecord(payload);
+	if (!Array.isArray(value.paths) || value.paths.length === 0 || value.paths.length > MAX_PATHS_PER_REQUEST) throw new GitOperationError("INVALID_REQUEST", `Git paths must contain 1-${MAX_PATHS_PER_REQUEST} entries`);
+	if (!value.paths.every((path) => typeof path === "string")) throw new GitOperationError("INVALID_REQUEST", "Every Git path must be a string");
+	return {
+		workspaceId: workspaceIdOf(value),
+		paths: value.paths
+	};
 }
 function parseCommitRequest(payload) {
 	const value = requestRecord(payload);

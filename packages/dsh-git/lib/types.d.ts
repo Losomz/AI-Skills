@@ -23,15 +23,32 @@ interface GitStatusSnapshot extends GitRepositoryInfo {
 interface GitDiffRequest {
   workspaceId: string;
   path: string;
+  originalPath?: string;
   staged: boolean;
 }
-interface GitDiffResult {
+interface GitDiffHunk {
+  oldText: string | null;
+  newText: string;
+}
+interface GitDiffResultBase {
   path: string;
   staged: boolean;
-  text: string;
-  binary: boolean;
-  truncated: boolean;
 }
+interface GitTextDiffResult extends GitDiffResultBase {
+  kind: 'text';
+  hunks: GitDiffHunk[];
+}
+interface GitBinaryDiffResult extends GitDiffResultBase {
+  kind: 'binary';
+}
+interface GitLargeDiffResult extends GitDiffResultBase {
+  kind: 'too-large';
+  limitBytes: number;
+}
+interface GitEmptyDiffResult extends GitDiffResultBase {
+  kind: 'empty';
+}
+type GitDiffResult = GitTextDiffResult | GitBinaryDiffResult | GitLargeDiffResult | GitEmptyDiffResult;
 interface GitPathsRequest {
   workspaceId: string;
   paths: string[];
@@ -52,4 +69,4 @@ interface GitCommitResult {
   summary: string;
 }
 //#endregion
-export { GitChangeKind, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitFileChange, GitGenerateCommitMessageRequest, GitGenerateCommitMessageResult, GitPathsRequest, GitRepositoryInfo, GitStatusSnapshot };
+export { GitBinaryDiffResult, GitChangeKind, GitCommitRequest, GitCommitResult, GitDiffHunk, GitDiffRequest, GitDiffResult, GitEmptyDiffResult, GitFileChange, GitGenerateCommitMessageRequest, GitGenerateCommitMessageResult, GitLargeDiffResult, GitPathsRequest, GitRepositoryInfo, GitStatusSnapshot, GitTextDiffResult };

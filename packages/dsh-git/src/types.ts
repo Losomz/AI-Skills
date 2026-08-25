@@ -34,16 +34,43 @@ export interface GitStatusSnapshot extends GitRepositoryInfo {
 export interface GitDiffRequest {
   workspaceId: string
   path: string
+  originalPath?: string
   staged: boolean
 }
 
-export interface GitDiffResult {
+export interface GitDiffHunk {
+  oldText: string | null
+  newText: string
+}
+
+interface GitDiffResultBase {
   path: string
   staged: boolean
-  text: string
-  binary: boolean
-  truncated: boolean
 }
+
+export interface GitTextDiffResult extends GitDiffResultBase {
+  kind: 'text'
+  hunks: GitDiffHunk[]
+}
+
+export interface GitBinaryDiffResult extends GitDiffResultBase {
+  kind: 'binary'
+}
+
+export interface GitLargeDiffResult extends GitDiffResultBase {
+  kind: 'too-large'
+  limitBytes: number
+}
+
+export interface GitEmptyDiffResult extends GitDiffResultBase {
+  kind: 'empty'
+}
+
+export type GitDiffResult =
+  | GitTextDiffResult
+  | GitBinaryDiffResult
+  | GitLargeDiffResult
+  | GitEmptyDiffResult
 
 export interface GitPathsRequest {
   workspaceId: string

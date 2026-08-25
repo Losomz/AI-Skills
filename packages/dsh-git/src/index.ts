@@ -8,16 +8,26 @@ import { generateCommitMessage } from './commit-message.ts'
 import {
   createCommit,
   GitOperationError,
+  readDiff,
   readStagedPromptContext,
+  readStatus,
   RepositoryMutationQueue,
   resolveRepository,
+  stagePaths,
+  unstagePaths,
 } from './git.ts'
-import type { GitCommitRequest, GitGenerateCommitMessageRequest } from './types.ts'
+import type {
+  GitCommitRequest,
+  GitDiffRequest,
+  GitGenerateCommitMessageRequest,
+  GitPathsRequest,
+} from './types.ts'
 
 export type * from './types.ts'
 
 const RPC_CHANNEL = '/dsh-git'
 const MAX_INSTRUCTION_BYTES = 16 * 1024
+const MAX_PATHS_PER_REQUEST = 256
 
 /** Host service exposing workspace-confined local Git operations to the DSH Client. */
 export class SourceControlService extends Service {
@@ -30,6 +40,33 @@ export class SourceControlService extends Service {
       RPC_CHANNEL,
       async (endpoint, payload, signal) => {
         try {
+          if (endpoint === 'status') {
+            const request = requestRecord(payload)
+            const root = await this.repositoryRoot(workspaceIdOf(request))
+            const value = await this.mutations.run(root, async () => await readStatus(root))
+            return { ok: true, value }
+          }
+          if (endpoint === 'diff') {
+            const request = parseDiffRequest(payload)
+            const root = await this.repositoryRoot(request.workspaceId)
+            const value = await this.mutations.run(root, async () => await readDiff(
+              root,
+              request.path,
+              request.staged,
+              request.originalPath,
+            ))
+            return { ok: true, value }
+          }
+          if (endpoint === 'stage' || endpoint === 'unstage') {
+            const request = parsePathsRequest(payload)
+            const root = await this.repositoryRoot(request.workspaceId)
+            const value = await this.mutations.run(root, async () => {
+              if (endpoint === 'stage') await stagePaths(root, request.paths)
+              else await unstagePaths(root, request.paths)
+              return await readStatus(root)
+            })
+            return { ok: true, value }
+          }
           if (endpoint === 'commit') {
             const request = parseCommitRequest(payload)
             const root = await this.repositoryRoot(request.workspaceId)
@@ -80,6 +117,33 @@ function workspaceIdOf(value: Record<string, unknown>): string {
     throw new GitOperationError('INVALID_REQUEST', 'Git request requires a workspaceId')
   }
   return value.workspaceId
+}
+
+function parseDiffRequest(payload: unknown): GitDiffRequest {
+  const value = requestRecord(payload)
+  if (typeof value.path !== 'string' || typeof value.staged !== 'boolean') {
+    throw new GitOperationError('INVALID_REQUEST', 'Git diff requires a path and staged flag')
+  }
+  if (value.originalPath !== undefined && typeof value.originalPath !== 'string') {
+    throw new GitOperationError('INVALID_REQUEST', 'Git diff originalPath must be a string')
+  }
+  return {
+    workspaceId: workspaceIdOf(value),
+    path: value.path,
+    staged: value.staged,
+    ...(value.originalPath === undefined ? {} : { originalPath: value.originalPath as string }),
+  }
+}
+
+function parsePathsRequest(payload: unknown): GitPathsRequest {
+  const value = requestRecord(payload)
+  if (!Array.isArray(value.paths) || value.paths.length === 0 || value.paths.length > MAX_PATHS_PER_REQUEST) {
+    throw new GitOperationError('INVALID_REQUEST', `Git paths must contain 1-${MAX_PATHS_PER_REQUEST} entries`)
+  }
+  if (!value.paths.every(path => typeof path === 'string')) {
+    throw new GitOperationError('INVALID_REQUEST', 'Every Git path must be a string')
+  }
+  return { workspaceId: workspaceIdOf(value), paths: value.paths as string[] }
 }
 
 function parseCommitRequest(payload: unknown): GitCommitRequest {

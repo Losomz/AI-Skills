@@ -27,70 +27,121 @@ window.__ModuleLoader__.load({
 			const [diffResult, setDiffResult] = (0, react.useState)();
 			const [message, setMessage] = (0, react.useState)("");
 			const [busy, setBusy] = (0, react.useState)(false);
+			const [diffBusy, setDiffBusy] = (0, react.useState)(false);
 			const [generating, setGenerating] = (0, react.useState)(false);
 			const [error, setError] = (0, react.useState)();
+			const [diffError, setDiffError] = (0, react.useState)();
 			const [notice, setNotice] = (0, react.useState)();
 			const rootRef = (0, react.useRef)(null);
+			const selectionRef = (0, react.useRef)();
+			const diffRequestRef = (0, react.useRef)(0);
 			(0, _deepseek_ai_dsh_client_ui_primitives.useDismissOnOutsidePointer)(rootRef, open, setOpen);
+			const clearSelection = (0, react.useCallback)(() => {
+				diffRequestRef.current += 1;
+				selectionRef.current = void 0;
+				setSelection(void 0);
+				setDiffResult(void 0);
+				setDiffError(void 0);
+				setDiffBusy(false);
+			}, []);
+			const loadDiff = (0, react.useCallback)(async (next) => {
+				if (workspaceId === void 0) return;
+				const requestId = ++diffRequestRef.current;
+				selectionRef.current = next;
+				setSelection(next);
+				setDiffResult(void 0);
+				setDiffError(void 0);
+				setDiffBusy(true);
+				try {
+					const result = await diff({
+						workspaceId,
+						...next
+					});
+					if (diffRequestRef.current === requestId) setDiffResult(result);
+				} catch (cause) {
+					if (diffRequestRef.current === requestId) setDiffError(messageOf(cause));
+				} finally {
+					if (diffRequestRef.current === requestId) setDiffBusy(false);
+				}
+			}, [diff, workspaceId]);
 			const refresh = (0, react.useCallback)(async () => {
 				if (workspaceId === void 0) {
 					setSnapshot(void 0);
 					setError(void 0);
+					clearSelection();
 					return;
 				}
 				setBusy(true);
 				setError(void 0);
 				try {
-					setSnapshot(await status(workspaceId));
+					const nextSnapshot = await status(workspaceId);
+					setSnapshot(nextSnapshot);
+					const current = selectionRef.current;
+					if (current !== void 0) {
+						const file = nextSnapshot.files.find((item) => item.path === current.path);
+						const stillPresent = file !== void 0 && (current.staged ? file.staged : file.unstaged);
+						if (file === void 0 || !stillPresent) clearSelection();
+						else await loadDiff({
+							path: file.path,
+							staged: current.staged,
+							...file.originalPath === void 0 ? {} : { originalPath: file.originalPath }
+						});
+					}
 				} catch (cause) {
 					setSnapshot(void 0);
 					setError(messageOf(cause));
+					clearSelection();
 				} finally {
 					setBusy(false);
 				}
-			}, [status, workspaceId]);
+			}, [
+				clearSelection,
+				loadDiff,
+				status,
+				workspaceId
+			]);
 			(0, react.useEffect)(() => {
-				setSelection(void 0);
-				setDiffResult(void 0);
+				clearSelection();
 				if (open) refresh();
 			}, [
+				clearSelection,
 				open,
 				refresh,
 				workspaceId
 			]);
 			const selectFile = async (change, staged) => {
-				if (workspaceId === void 0) return;
-				const next = {
-					path: change.path,
-					staged
-				};
-				setSelection(next);
-				setDiffResult(void 0);
-				setError(void 0);
-				try {
-					setDiffResult(await diff({
-						workspaceId,
-						...next
-					}));
-				} catch (cause) {
-					setError(messageOf(cause));
+				if (selectionRef.current?.path === change.path && selectionRef.current.staged === staged) {
+					clearSelection();
+					return;
 				}
+				await loadDiff({
+					path: change.path,
+					staged,
+					...change.originalPath === void 0 ? {} : { originalPath: change.originalPath }
+				});
 			};
 			const changeStage = async (change, staged) => {
 				if (workspaceId === void 0) return;
 				setBusy(true);
 				setError(void 0);
 				try {
+					const paths = change.originalPath === void 0 ? [change.path] : [change.originalPath, change.path];
 					const next = staged ? await unstage({
 						workspaceId,
-						paths: [change.path]
+						paths
 					}) : await stage({
 						workspaceId,
-						paths: [change.path]
+						paths
 					});
 					setSnapshot(next);
-					setSelection(void 0);
-					setDiffResult(void 0);
+					const updated = next.files.find((file) => file.path === change.path);
+					const targetStaged = !staged;
+					if (updated !== void 0 && (targetStaged ? updated.staged : updated.unstaged)) await loadDiff({
+						path: updated.path,
+						staged: targetStaged,
+						...updated.originalPath === void 0 ? {} : { originalPath: updated.originalPath }
+					});
+					else clearSelection();
 				} catch (cause) {
 					setError(messageOf(cause));
 				} finally {
@@ -127,8 +178,7 @@ window.__ModuleLoader__.load({
 					});
 					setNotice(`Committed ${result.hash.slice(0, 7)}: ${result.summary}`);
 					setMessage("");
-					setSelection(void 0);
-					setDiffResult(void 0);
+					clearSelection();
 					setSnapshot(await status(workspaceId));
 				} catch (cause) {
 					setError(messageOf(cause));
@@ -231,9 +281,9 @@ window.__ModuleLoader__.load({
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}), " 提交"]
 							})]
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 							className: "dshGitBody",
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: "dshGitChanges",
 								children: [
 									error && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -261,6 +311,9 @@ window.__ModuleLoader__.load({
 											staged: true,
 											selection,
 											disabled: busy,
+											diffBusy,
+											diffError,
+											diffResult,
 											onSelect: selectFile,
 											onStageChange: changeStage
 										}),
@@ -270,6 +323,9 @@ window.__ModuleLoader__.load({
 											staged: false,
 											selection,
 											disabled: busy,
+											diffBusy,
+											diffError,
+											diffResult,
 											onSelect: selectFile,
 											onStageChange: changeStage
 										}),
@@ -279,33 +335,42 @@ window.__ModuleLoader__.load({
 										})
 									] })
 								]
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: "dshGitDiff",
-								children: [
-									selection === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-										className: "dshGitState",
-										children: "Select a changed file to view its diff."
-									}),
-									selection !== void 0 && diffResult === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-										className: "dshGitState",
-										children: "Loading diff..."
-									}),
-									diffResult !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-										className: "dshGitDiffHeader",
-										children: [
-											diffResult.staged ? "Staged" : "Working tree",
-											": ",
-											diffResult.path
-										]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", { children: diffResult.text || "No textual diff is available for this file." })] })
-								]
-							})]
+							})
 						})
 					]
 				})]
 			});
 		}
-		function ChangeSection({ title, files, staged, selection, disabled, onSelect, onStageChange }) {
+		function DiffResultView({ result }) {
+			if (result.kind === "text") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: "dshGitDiffContent",
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.DiffBlock, {
+					className: "dshGitDiffBlock",
+					maxLines: 24,
+					diffs: result.hunks.map((hunk) => ({
+						path: result.path,
+						...hunk
+					}))
+				})
+			});
+			if (result.kind === "binary") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: "dshGitState",
+				children: "二进制文件无法显示文本差异。"
+			});
+			if (result.kind === "too-large") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "dshGitState",
+				children: [
+					"差异超过 ",
+					Math.round(result.limitBytes / 1024),
+					" KiB 显示上限。"
+				]
+			});
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: "dshGitState",
+				children: "当前层级没有可显示的文本差异。"
+			});
+		}
+		function ChangeSection({ title, files, staged, selection, disabled, diffBusy, diffError, diffResult, onSelect, onStageChange }) {
 			if (files.length === 0) return null;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: "dshGitSectionTitle",
@@ -315,39 +380,154 @@ window.__ModuleLoader__.load({
 					files.length,
 					")"
 				]
-			}), files.map((file) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-				type: "button",
-				className: "dshGitFile",
-				"data-selected": selection?.path === file.path && selection.staged === staged,
-				onClick: () => void onSelect(file, staged),
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "dshGitStatus",
-						"data-conflict": file.kind === "conflicted",
-						children: statusLetter(file)
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "dshGitPath",
-						title: file.path,
-						children: file.path
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
-						label: staged ? "Unstage file" : "Stage file",
-						side: "right",
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: "dshGitIconButton",
-							role: "button",
-							"aria-label": staged ? "Unstage file" : "Stage file",
-							"aria-disabled": disabled,
-							onClick: (event) => {
-								event.stopPropagation();
-								if (!disabled) onStageChange(file, staged);
-							},
-							children: staged ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseOutline16, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, {})
-						})
-					})
-				]
-			}, `${staged ? "s" : "u"}:${file.path}`))] });
+			}), files.map((file, index) => {
+				const selected = selection?.path === file.path && selection.staged === staged;
+				const panelId = `dsh-git-diff-${staged ? "staged" : "working"}-${index}`;
+				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "dshGitFileEntry",
+					"data-selected": selected,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: "dshGitFileRow",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: "dshGitFile",
+							"aria-expanded": selected,
+							"aria-controls": panelId,
+							onClick: () => void onSelect(file, staged),
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "dshGitStatus",
+								"data-conflict": file.kind === "conflicted",
+								children: statusLetter(file)
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "dshGitPath",
+								title: file.path,
+								children: file.path
+							})]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+							label: staged ? "取消暂存" : "暂存文件",
+							side: "right",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "dshGitIconButton dshGitStageButton",
+								"aria-label": staged ? "取消暂存" : "暂存文件",
+								disabled,
+								onClick: () => void onStageChange(file, staged),
+								children: staged ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseOutline16, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, {})
+							})
+						})]
+					}), selected && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: "dshGitInlineDiff",
+						id: panelId,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "dshGitDiffHeader",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: staged ? "Staged" : "Working tree" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									title: file.path,
+									children: file.path
+								})]
+							}),
+							diffBusy && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: "dshGitState",
+								children: "正在加载差异..."
+							}),
+							diffError && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: "dshGitError",
+								role: "alert",
+								children: diffError
+							}),
+							!diffBusy && diffResult !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DiffResultView, { result: diffResult })
+						]
+					})]
+				}, `${staged ? "s" : "u"}:${file.path}`);
+			})] });
+		}
+		//#endregion
+		//#region src/client/parse.ts
+		const CHANGE_KINDS = /* @__PURE__ */ new Set([
+			"added",
+			"modified",
+			"deleted",
+			"renamed",
+			"copied",
+			"untracked",
+			"conflicted"
+		]);
+		function recordOf(value, label) {
+			if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`Git Host returned an invalid ${label}`);
+			return value;
+		}
+		function parseFile(value) {
+			const file = recordOf(value, "status file");
+			if (typeof file.path !== "string" || typeof file.kind !== "string" || !CHANGE_KINDS.has(file.kind) || typeof file.staged !== "boolean" || typeof file.unstaged !== "boolean" || file.originalPath !== void 0 && typeof file.originalPath !== "string") throw new Error("Git Host returned an invalid status file");
+			return {
+				path: file.path,
+				kind: file.kind,
+				staged: file.staged,
+				unstaged: file.unstaged,
+				...file.originalPath === void 0 ? {} : { originalPath: file.originalPath }
+			};
+		}
+		function parseStatus(value) {
+			const status = recordOf(value, "status");
+			if (typeof status.root !== "string" || status.branch !== null && typeof status.branch !== "string" || typeof status.detached !== "boolean" || typeof status.unborn !== "boolean" || !Number.isSafeInteger(status.ahead) || !Number.isSafeInteger(status.behind) || status.ahead < 0 || status.behind < 0 || typeof status.hasConflicts !== "boolean" || !Array.isArray(status.files)) throw new Error("Git Host returned an invalid status");
+			return {
+				root: status.root,
+				branch: status.branch,
+				detached: status.detached,
+				unborn: status.unborn,
+				ahead: status.ahead,
+				behind: status.behind,
+				hasConflicts: status.hasConflicts,
+				files: status.files.map(parseFile)
+			};
+		}
+		function parseHunk(value) {
+			const hunk = recordOf(value, "diff hunk");
+			if (hunk.oldText !== null && typeof hunk.oldText !== "string" || typeof hunk.newText !== "string") throw new Error("Git Host returned an invalid diff hunk");
+			return {
+				oldText: hunk.oldText,
+				newText: hunk.newText
+			};
+		}
+		function parseDiff(value) {
+			const diff = recordOf(value, "diff");
+			if (typeof diff.path !== "string" || typeof diff.staged !== "boolean" || typeof diff.kind !== "string") throw new Error("Git Host returned an invalid diff");
+			const base = {
+				path: diff.path,
+				staged: diff.staged
+			};
+			if (diff.kind === "text" && Array.isArray(diff.hunks)) return {
+				...base,
+				kind: "text",
+				hunks: diff.hunks.map(parseHunk)
+			};
+			if (diff.kind === "binary") return {
+				...base,
+				kind: "binary"
+			};
+			if (diff.kind === "empty") return {
+				...base,
+				kind: "empty"
+			};
+			if (diff.kind === "too-large" && Number.isSafeInteger(diff.limitBytes) && diff.limitBytes > 0) return {
+				...base,
+				kind: "too-large",
+				limitBytes: diff.limitBytes
+			};
+			throw new Error("Git Host returned an invalid diff");
+		}
+		function parseGenerateResult(value) {
+			const result = recordOf(value, "generated commit message");
+			if (typeof result.message !== "string") throw new Error("Git Host returned an invalid generated commit message");
+			return { message: result.message };
+		}
+		function parseCommitResult(value) {
+			const result = recordOf(value, "commit result");
+			if (typeof result.hash !== "string" || typeof result.summary !== "string") throw new Error("Git Host returned an invalid commit result");
+			return {
+				hash: result.hash,
+				summary: result.summary
+			};
 		}
 		//#endregion
 		//#region src/client/styles.ts
@@ -364,17 +544,24 @@ window.__ModuleLoader__.load({
 .dshGitIconButton { width: 30px; height: 30px; border: 0; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dshGitIconButton:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .dshGitIconButton:disabled { opacity: .45; cursor: default; }
-.dshGitBody { min-height: 0; display: grid; grid-template-columns: minmax(240px, 34%) minmax(0, 1fr); }
-.dshGitChanges { min-height: 0; overflow: auto; border-right: 1px solid var(--dsw-alias-border-l1); padding: 8px 0; }
+.dshGitBody { min-height: 0; overflow: hidden; }
+.dshGitChanges { height: 100%; min-height: 0; overflow: auto; padding: 8px 0; }
 .dshGitSectionTitle { padding: 8px 12px 5px; color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 600; text-transform: uppercase; }
-.dshGitFile { width: 100%; min-height: 34px; display: grid; grid-template-columns: 22px minmax(0, 1fr) 30px; align-items: center; gap: 6px; padding: 3px 8px 3px 12px; border: 0; background: transparent; color: var(--dsw-alias-label-primary); text-align: left; font: inherit; cursor: pointer; }
-.dshGitFile:hover, .dshGitFile[data-selected="true"] { background: var(--dsw-alias-interactive-bg-hover); }
+.dshGitFileEntry { border-bottom: 1px solid transparent; }
+.dshGitFileEntry[data-selected="true"] { border-bottom-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
+.dshGitFileRow { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 38px; align-items: center; }
+.dshGitFile { width: 100%; min-width: 0; min-height: 38px; display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 6px; padding: 3px 4px 3px 12px; border: 0; background: transparent; color: var(--dsw-alias-label-primary); text-align: left; font: inherit; cursor: pointer; }
+.dshGitFile:hover, .dshGitFile[aria-expanded="true"] { background: var(--dsw-alias-interactive-bg-hover); }
+.dshGitStageButton { width: 30px; justify-self: center; }
+.dshGitInlineDiff { min-width: 0; border-top: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
 .dshGitStatus { font-size: 11px; font-weight: 700; color: var(--dsw-alias-brand-primary); }
 .dshGitStatus[data-conflict="true"] { color: var(--dsw-alias-state-error-primary); }
 .dshGitPath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dshGitDiff { min-width: 0; min-height: 0; overflow: auto; background: var(--dsw-alias-bg-base); }
-.dshGitDiffHeader { position: sticky; top: 0; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.dshGitDiff pre { margin: 0; padding: 12px; min-width: max-content; white-space: pre; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.dshGitDiffHeader { position: sticky; z-index: 1; top: 0; padding: 8px 12px; display: grid; gap: 2px; border-bottom: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dshGitDiffHeader span:last-child { overflow: hidden; color: var(--dsw-alias-label-primary); text-overflow: ellipsis; white-space: nowrap; }
+.dshGitDiffContent { min-width: 0; padding: 10px; }
+.dshGitDiffBlock { width: 100%; min-width: 0; }
 .dshGitState { padding: 24px 16px; color: var(--dsw-alias-label-secondary); text-align: center; }
 .dshGitError { margin: 8px 12px; padding: 8px 10px; color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); border-radius: 6px; font-size: 12px; }
 .dshGitSuccess { margin: 8px 12px; padding: 8px 10px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); border-radius: 6px; font-size: 12px; }
@@ -393,7 +580,7 @@ window.__ModuleLoader__.load({
 .dshGitSubmit:disabled { opacity: .4; cursor: not-allowed; }
 @keyframes dshGitGeneratePulse { from { opacity: .45; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .dshGitGenerate[aria-busy="true"] svg { animation: none; } }
-@media (max-width: 720px) { .dshGitPanel { top: 48px; right: 8px; bottom: 8px; left: 8px; width: auto; height: auto; } .dshGitBody { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 42%) minmax(0, 1fr); } .dshGitChanges { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); } }
+@media (max-width: 720px) { .dshGitPanel { top: 48px; right: 8px; bottom: 8px; left: 8px; width: auto; height: auto; } }
 `;
 		function installStyles() {
 			if (typeof document === "undefined") return () => void 0;
@@ -409,40 +596,21 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/index.ts
 		const inject = ["slots", "connection"];
-		const EMPTY_STATUS = {
-			root: "",
-			branch: "main",
-			detached: false,
-			unborn: false,
-			ahead: 0,
-			behind: 0,
-			hasConflicts: false,
-			files: []
-		};
-		/** Register the Source Control panel and its local Host commit caller. */
+		/** Register the Source Control panel and its workspace-confined Host callers. */
 		function apply(ctx) {
 			const connection = ctx.connection;
+			const call = async (endpoint, payload) => {
+				const result = await connection.rpc.call("/dsh-git", endpoint, payload);
+				if (!result.ok) throw new Error(result.error.message);
+				return result.value;
+			};
 			const panelFace = {
-				status: async () => EMPTY_STATUS,
-				diff: async (request) => ({
-					path: request.path,
-					staged: request.staged,
-					text: "",
-					binary: false,
-					truncated: false
-				}),
-				stage: async () => EMPTY_STATUS,
-				unstage: async () => EMPTY_STATUS,
-				generateCommitMessage: async (request) => {
-					const result = await connection.rpc.call("/dsh-git", "generate-commit-message", request);
-					if (!result.ok) throw new Error(result.error.message);
-					return parseGenerateResult(result.value);
-				},
-				commit: async (request) => {
-					const result = await connection.rpc.call("/dsh-git", "commit", request);
-					if (!result.ok) throw new Error(result.error.message);
-					return parseCommitResult(result.value);
-				}
+				status: async (workspaceId) => parseStatus(await call("status", { workspaceId })),
+				diff: async (request) => parseDiff(await call("diff", request)),
+				stage: async (request) => parseStatus(await call("stage", request)),
+				unstage: async (request) => parseStatus(await call("unstage", request)),
+				generateCommitMessage: async (request) => parseGenerateResult(await call("generate-commit-message", request)),
+				commit: async (request) => parseCommitResult(await call("commit", request))
 			};
 			ctx.effect(() => installStyles(), "dsh-git: styles");
 			ctx.slots.inject("conversation.session.header.utilities", () => ctx.slots.register({
@@ -451,19 +619,6 @@ window.__ModuleLoader__.load({
 				order: -10,
 				inject: () => panelFace
 			}, SourceControlPanel));
-		}
-		function parseGenerateResult(value) {
-			if (typeof value !== "object" || value === null || typeof value.message !== "string") throw new Error("Git Host returned an invalid generated commit message");
-			return { message: value.message };
-		}
-		function parseCommitResult(value) {
-			if (typeof value !== "object" || value === null) throw new Error("Git Host returned an invalid commit result");
-			const result = value;
-			if (typeof result.hash !== "string" || typeof result.summary !== "string") throw new Error("Git Host returned an invalid commit result");
-			return {
-				hash: result.hash,
-				summary: result.summary
-			};
 		}
 		//#endregion
 		exports.apply = apply;

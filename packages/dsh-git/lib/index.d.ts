@@ -1,4 +1,4 @@
-import { GitChangeKind, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitFileChange, GitGenerateCommitMessageRequest, GitGenerateCommitMessageResult, GitPathsRequest, GitRepositoryInfo, GitStatusSnapshot } from "./types.js";
+import { GitBinaryDiffResult, GitChangeKind, GitCommitRequest, GitCommitResult, GitDiffHunk, GitDiffRequest, GitDiffResult, GitEmptyDiffResult, GitFileChange, GitGenerateCommitMessageRequest, GitGenerateCommitMessageResult, GitLargeDiffResult, GitPathsRequest, GitRepositoryInfo, GitStatusSnapshot, GitTextDiffResult } from "./types.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 //#region src/index.d.ts
 /** Host service exposing workspace-confined local Git operations to the DSH Client. */
@@ -9,4 +9,4 @@ declare class SourceControlService extends Service {
   private repositoryRoot;
 }
 //#endregion
-export { type GitChangeKind, type GitCommitRequest, type GitCommitResult, type GitDiffRequest, type GitDiffResult, type GitFileChange, type GitGenerateCommitMessageRequest, type GitGenerateCommitMessageResult, type GitPathsRequest, type GitRepositoryInfo, type GitStatusSnapshot, SourceControlService, SourceControlService as default };
+export { type GitBinaryDiffResult, type GitChangeKind, type GitCommitRequest, type GitCommitResult, type GitDiffHunk, type GitDiffRequest, type GitDiffResult, type GitEmptyDiffResult, type GitFileChange, type GitGenerateCommitMessageRequest, type GitGenerateCommitMessageResult, type GitLargeDiffResult, type GitPathsRequest, type GitRepositoryInfo, type GitStatusSnapshot, type GitTextDiffResult, SourceControlService, SourceControlService as default };

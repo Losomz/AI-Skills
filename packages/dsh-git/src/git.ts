@@ -4,6 +4,7 @@ import path from 'node:path'
 import type {
   GitChangeKind,
   GitCommitResult,
+  GitDiffHunk,
   GitDiffResult,
   GitFileChange,
   GitRepositoryInfo,
@@ -51,21 +52,27 @@ function runGit(cwd: string, args: readonly string[], options: RunOptions = {}):
     const maxBytes = options.maxBytes ?? MAX_OUTPUT_BYTES
     let size = 0
     let settled = false
+    let terminationError: Error | undefined
     const rejectOnce = (error: Error): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       reject(error)
     }
-    const timer = setTimeout(() => {
+    const terminate = (error: Error): void => {
+      if (settled || terminationError !== undefined) return
+      terminationError = error
+      clearTimeout(timer)
       child.kill()
-      rejectOnce(new GitOperationError('GIT_TIMEOUT', 'Git operation timed out'))
+    }
+    const timer = setTimeout(() => {
+      terminate(new GitOperationError('GIT_TIMEOUT', 'Git operation timed out'))
     }, COMMAND_TIMEOUT_MS)
     const collect = (target: Buffer[], chunk: Buffer): void => {
+      if (terminationError !== undefined) return
       size += chunk.byteLength
       if (size > maxBytes) {
-        child.kill()
-        rejectOnce(new GitOperationError('GIT_OUTPUT_LIMIT', 'Git output exceeded the safety limit'))
+        terminate(new GitOperationError('GIT_OUTPUT_LIMIT', 'Git output exceeded the safety limit'))
         return
       }
       target.push(chunk)
@@ -81,6 +88,10 @@ function runGit(cwd: string, args: readonly string[], options: RunOptions = {}):
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (terminationError !== undefined) {
+        reject(terminationError)
+        return
+      }
       const exitCode = code ?? -1
       const errorText = Buffer.concat(stderr).toString('utf8').trim()
       if (exitCode !== 0 && !(options.allowExitCodes ?? []).includes(exitCode)) {
@@ -229,21 +240,86 @@ export async function repositoryInfo(repoRoot: string): Promise<GitRepositoryInf
   return info
 }
 
-export async function readDiff(repoRoot: string, requestedPath: string, staged: boolean): Promise<GitDiffResult> {
+export function parseUnifiedDiff(text: string): GitDiffHunk[] {
+  const hunks: GitDiffHunk[] = []
+  let inHunk = false
+  let removed: string[] = []
+  let added: string[] = []
+
+  const flush = (): void => {
+    if (removed.length === 0 && added.length === 0) return
+    hunks.push({
+      oldText: removed.length === 0 ? null : `${removed.join('\n')}\n`,
+      newText: added.length === 0 ? '' : `${added.join('\n')}\n`,
+    })
+    removed = []
+    added = []
+  }
+
+  for (const line of text.split('\n')) {
+    if (line.startsWith('@@')) {
+      flush()
+      inHunk = true
+      continue
+    }
+    if (!inHunk) continue
+    if (line.startsWith('diff --git ')) {
+      flush()
+      inHunk = false
+      continue
+    }
+    if (line.startsWith('\\ No newline at end of file')) continue
+    if (line.startsWith('-')) {
+      removed.push(line.slice(1))
+      continue
+    }
+    if (line.startsWith('+')) {
+      added.push(line.slice(1))
+      continue
+    }
+    flush()
+  }
+  flush()
+  return hunks
+}
+
+export async function readDiff(
+  repoRoot: string,
+  requestedPath: string,
+  staged: boolean,
+  requestedOriginalPath?: string,
+): Promise<GitDiffResult> {
   const relativePath = validateRelativePath(repoRoot, requestedPath)
-  const args = ['--no-pager', 'diff', '--no-ext-diff', '--no-textconv', '--no-color']
-  if (staged) args.push('--cached')
-  args.push('--', relativePath)
-  let text = ''
-  let truncated = false
+  const originalPath = requestedOriginalPath === undefined
+    ? undefined
+    : validateRelativePath(repoRoot, requestedOriginalPath)
+  const status = await readStatus(repoRoot)
+  const change = status.files.find(file => file.path === relativePath)
+  const untracked = !staged && change?.kind === 'untracked'
+  const args = untracked
+    ? ['--no-pager', 'diff', '--no-index', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', '--', '/dev/null', relativePath]
+    : [
+        '--no-pager', 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3',
+        ...(staged ? ['--cached'] : []),
+        '--',
+        ...(originalPath === undefined ? [] : [originalPath]),
+        relativePath,
+      ]
+  let text: string
   try {
-    text = (await runGit(repoRoot, args, { maxBytes: MAX_DIFF_BYTES })).stdout.toString('utf8')
+    text = (await runGit(repoRoot, args, {
+      maxBytes: MAX_DIFF_BYTES,
+      ...(untracked ? { allowExitCodes: [1] } : {}),
+    })).stdout.toString('utf8')
   } catch (error) {
     if (!(error instanceof GitOperationError) || error.code !== 'GIT_OUTPUT_LIMIT') throw error
-    text = 'Diff exceeds the 512 KiB display limit.'
-    truncated = true
+    return { path: relativePath, staged, kind: 'too-large', limitBytes: MAX_DIFF_BYTES }
   }
-  return { path: relativePath, staged, text, binary: /Binary files .* differ/u.test(text), truncated }
+  if (/^Binary files .* differ$/mu.test(text)) return { path: relativePath, staged, kind: 'binary' }
+  const hunks = parseUnifiedDiff(text)
+  return hunks.length === 0
+    ? { path: relativePath, staged, kind: 'empty' }
+    : { path: relativePath, staged, kind: 'text', hunks }
 }
 
 export async function stagePaths(repoRoot: string, paths: readonly string[]): Promise<void> {

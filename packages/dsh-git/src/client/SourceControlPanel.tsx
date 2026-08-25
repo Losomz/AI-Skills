@@ -5,6 +5,7 @@ import {
   useState,
 } from 'react'
 import {
+  DiffBlock,
   IconBranchOutline16,
   IconCheckOutline16,
   IconCloseOutline16,
@@ -19,6 +20,7 @@ import type { SourceControlPanelProps } from './types.ts'
 
 interface Selection {
   path: string
+  originalPath?: string
   staged: boolean
 }
 
@@ -54,47 +56,90 @@ export function SourceControlPanel({
   const [diffResult, setDiffResult] = useState<GitDiffResult>()
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [diffBusy, setDiffBusy] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string>()
+  const [diffError, setDiffError] = useState<string>()
   const [notice, setNotice] = useState<string>()
   const rootRef = useRef<HTMLDivElement>(null)
+  const selectionRef = useRef<Selection>()
+  const diffRequestRef = useRef(0)
   useDismissOnOutsidePointer(rootRef, open, setOpen)
+
+  const clearSelection = useCallback((): void => {
+    diffRequestRef.current += 1
+    selectionRef.current = undefined
+    setSelection(undefined)
+    setDiffResult(undefined)
+    setDiffError(undefined)
+    setDiffBusy(false)
+  }, [])
+
+  const loadDiff = useCallback(async (next: Selection): Promise<void> => {
+    if (workspaceId === undefined) return
+    const requestId = ++diffRequestRef.current
+    selectionRef.current = next
+    setSelection(next)
+    setDiffResult(undefined)
+    setDiffError(undefined)
+    setDiffBusy(true)
+    try {
+      const result = await diff({ workspaceId, ...next })
+      if (diffRequestRef.current === requestId) setDiffResult(result)
+    } catch (cause) {
+      if (diffRequestRef.current === requestId) setDiffError(messageOf(cause))
+    } finally {
+      if (diffRequestRef.current === requestId) setDiffBusy(false)
+    }
+  }, [diff, workspaceId])
 
   const refresh = useCallback(async (): Promise<void> => {
     if (workspaceId === undefined) {
       setSnapshot(undefined)
       setError(undefined)
+      clearSelection()
       return
     }
     setBusy(true)
     setError(undefined)
     try {
-      setSnapshot(await status(workspaceId))
+      const nextSnapshot = await status(workspaceId)
+      setSnapshot(nextSnapshot)
+      const current = selectionRef.current
+      if (current !== undefined) {
+        const file = nextSnapshot.files.find(item => item.path === current.path)
+        const stillPresent = file !== undefined && (current.staged ? file.staged : file.unstaged)
+        if (file === undefined || !stillPresent) clearSelection()
+        else await loadDiff({
+          path: file.path,
+          staged: current.staged,
+          ...(file.originalPath === undefined ? {} : { originalPath: file.originalPath }),
+        })
+      }
     } catch (cause) {
       setSnapshot(undefined)
       setError(messageOf(cause))
+      clearSelection()
     } finally {
       setBusy(false)
     }
-  }, [status, workspaceId])
+  }, [clearSelection, loadDiff, status, workspaceId])
 
   useEffect(() => {
-    setSelection(undefined)
-    setDiffResult(undefined)
+    clearSelection()
     if (open) void refresh()
-  }, [open, refresh, workspaceId])
+  }, [clearSelection, open, refresh, workspaceId])
 
   const selectFile = async (change: GitFileChange, staged: boolean): Promise<void> => {
-    if (workspaceId === undefined) return
-    const next = { path: change.path, staged }
-    setSelection(next)
-    setDiffResult(undefined)
-    setError(undefined)
-    try {
-      setDiffResult(await diff({ workspaceId, ...next }))
-    } catch (cause) {
-      setError(messageOf(cause))
+    if (selectionRef.current?.path === change.path && selectionRef.current.staged === staged) {
+      clearSelection()
+      return
     }
+    await loadDiff({
+      path: change.path,
+      staged,
+      ...(change.originalPath === undefined ? {} : { originalPath: change.originalPath }),
+    })
   }
 
   const changeStage = async (change: GitFileChange, staged: boolean): Promise<void> => {
@@ -102,12 +147,22 @@ export function SourceControlPanel({
     setBusy(true)
     setError(undefined)
     try {
+      const paths = change.originalPath === undefined
+        ? [change.path]
+        : [change.originalPath, change.path]
       const next = staged
-        ? await unstage({ workspaceId, paths: [change.path] })
-        : await stage({ workspaceId, paths: [change.path] })
+        ? await unstage({ workspaceId, paths })
+        : await stage({ workspaceId, paths })
       setSnapshot(next)
-      setSelection(undefined)
-      setDiffResult(undefined)
+      const updated = next.files.find(file => file.path === change.path)
+      const targetStaged = !staged
+      if (updated !== undefined && (targetStaged ? updated.staged : updated.unstaged)) {
+        await loadDiff({
+          path: updated.path,
+          staged: targetStaged,
+          ...(updated.originalPath === undefined ? {} : { originalPath: updated.originalPath }),
+        })
+      } else clearSelection()
     } catch (cause) {
       setError(messageOf(cause))
     } finally {
@@ -143,8 +198,7 @@ export function SourceControlPanel({
       const result = await commit({ workspaceId, message })
       setNotice(`Committed ${result.hash.slice(0, 7)}: ${result.summary}`)
       setMessage('')
-      setSelection(undefined)
-      setDiffResult(undefined)
+      clearSelection()
       setSnapshot(await status(workspaceId))
     } catch (cause) {
       setError(messageOf(cause))
@@ -233,19 +287,31 @@ export function SourceControlPanel({
               {workspaceId !== undefined && busy && snapshot === undefined && <div className="dshGitState">Loading repository...</div>}
               {snapshot !== undefined && (
                 <>
-                  <ChangeSection title="Staged Changes" files={staged} staged selection={selection} disabled={busy} onSelect={selectFile} onStageChange={changeStage} />
-                  <ChangeSection title="Changes" files={changes} staged={false} selection={selection} disabled={busy} onSelect={selectFile} onStageChange={changeStage} />
+                  <ChangeSection
+                    title="Staged Changes"
+                    files={staged}
+                    staged
+                    selection={selection}
+                    disabled={busy}
+                    diffBusy={diffBusy}
+                    diffError={diffError}
+                    diffResult={diffResult}
+                    onSelect={selectFile}
+                    onStageChange={changeStage}
+                  />
+                  <ChangeSection
+                    title="Changes"
+                    files={changes}
+                    staged={false}
+                    selection={selection}
+                    disabled={busy}
+                    diffBusy={diffBusy}
+                    diffError={diffError}
+                    diffResult={diffResult}
+                    onSelect={selectFile}
+                    onStageChange={changeStage}
+                  />
                   {snapshot.files.length === 0 && <div className="dshGitState">Working tree is clean.</div>}
-                </>
-              )}
-            </div>
-            <div className="dshGitDiff">
-              {selection === undefined && <div className="dshGitState">Select a changed file to view its diff.</div>}
-              {selection !== undefined && diffResult === undefined && <div className="dshGitState">Loading diff...</div>}
-              {diffResult !== undefined && (
-                <>
-                  <div className="dshGitDiffHeader">{diffResult.staged ? 'Staged' : 'Working tree'}: {diffResult.path}</div>
-                  <pre>{diffResult.text || 'No textual diff is available for this file.'}</pre>
                 </>
               )}
             </div>
@@ -256,12 +322,34 @@ export function SourceControlPanel({
   )
 }
 
+function DiffResultView({ result }: { result: GitDiffResult }) {
+  if (result.kind === 'text') {
+    return (
+      <div className="dshGitDiffContent">
+        <DiffBlock
+          className="dshGitDiffBlock"
+          maxLines={24}
+          diffs={result.hunks.map(hunk => ({ path: result.path, ...hunk }))}
+        />
+      </div>
+    )
+  }
+  if (result.kind === 'binary') return <div className="dshGitState">二进制文件无法显示文本差异。</div>
+  if (result.kind === 'too-large') {
+    return <div className="dshGitState">差异超过 {Math.round(result.limitBytes / 1024)} KiB 显示上限。</div>
+  }
+  return <div className="dshGitState">当前层级没有可显示的文本差异。</div>
+}
+
 function ChangeSection({
   title,
   files,
   staged,
   selection,
   disabled,
+  diffBusy,
+  diffError,
+  diffResult,
   onSelect,
   onStageChange,
 }: {
@@ -270,6 +358,9 @@ function ChangeSection({
   staged: boolean
   selection: Selection | undefined
   disabled: boolean
+  diffBusy: boolean
+  diffError: string | undefined
+  diffResult: GitDiffResult | undefined
   onSelect(change: GitFileChange, staged: boolean): Promise<void>
   onStageChange(change: GitFileChange, staged: boolean): Promise<void>
 }) {
@@ -277,32 +368,48 @@ function ChangeSection({
   return (
     <section>
       <div className="dshGitSectionTitle">{title} ({files.length})</div>
-      {files.map(file => (
-        <button
-          type="button"
-          className="dshGitFile"
-          key={`${staged ? 's' : 'u'}:${file.path}`}
-          data-selected={selection?.path === file.path && selection.staged === staged}
-          onClick={() => void onSelect(file, staged)}
-        >
-          <span className="dshGitStatus" data-conflict={file.kind === 'conflicted'}>{statusLetter(file)}</span>
-          <span className="dshGitPath" title={file.path}>{file.path}</span>
-          <Tooltip label={staged ? 'Unstage file' : 'Stage file'} side="right">
-            <span
-              className="dshGitIconButton"
-              role="button"
-              aria-label={staged ? 'Unstage file' : 'Stage file'}
-              aria-disabled={disabled}
-              onClick={(event) => {
-                event.stopPropagation()
-                if (!disabled) void onStageChange(file, staged)
-              }}
-            >
-              {staged ? <IconCloseOutline16 /> : <IconPlusOutline16 />}
-            </span>
-          </Tooltip>
-        </button>
-      ))}
+      {files.map((file, index) => {
+        const selected = selection?.path === file.path && selection.staged === staged
+        const panelId = `dsh-git-diff-${staged ? 'staged' : 'working'}-${index}`
+        return (
+          <div className="dshGitFileEntry" data-selected={selected} key={`${staged ? 's' : 'u'}:${file.path}`}>
+            <div className="dshGitFileRow">
+              <button
+                type="button"
+                className="dshGitFile"
+                aria-expanded={selected}
+                aria-controls={panelId}
+                onClick={() => void onSelect(file, staged)}
+              >
+                <span className="dshGitStatus" data-conflict={file.kind === 'conflicted'}>{statusLetter(file)}</span>
+                <span className="dshGitPath" title={file.path}>{file.path}</span>
+              </button>
+              <Tooltip label={staged ? '取消暂存' : '暂存文件'} side="right">
+                <button
+                  type="button"
+                  className="dshGitIconButton dshGitStageButton"
+                  aria-label={staged ? '取消暂存' : '暂存文件'}
+                  disabled={disabled}
+                  onClick={() => void onStageChange(file, staged)}
+                >
+                  {staged ? <IconCloseOutline16 /> : <IconPlusOutline16 />}
+                </button>
+              </Tooltip>
+            </div>
+            {selected && (
+              <div className="dshGitInlineDiff" id={panelId}>
+                <div className="dshGitDiffHeader">
+                  <span>{staged ? 'Staged' : 'Working tree'}</span>
+                  <span title={file.path}>{file.path}</span>
+                </div>
+                {diffBusy && <div className="dshGitState">正在加载差异...</div>}
+                {diffError && <div className="dshGitError" role="alert">{diffError}</div>}
+                {!diffBusy && diffResult !== undefined && <DiffResultView result={diffResult} />}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </section>
   )
 }

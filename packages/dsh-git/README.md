@@ -29,8 +29,12 @@ A source-only `--patch` entry can load the Host half, but it does not expose the
 
 ## UI
 
-The Client registers an additive `conversation.session.header.utilities` entry. Its trigger opens a viewport-fixed Source Control panel at the top right. The current milestone provides:
+The Client registers an additive `conversation.session.header.utilities` entry. Its trigger opens a viewport-fixed Source Control panel at the top right. The panel provides:
 
+- real staged and unstaged file status for the current workspace repository
+- structured text diffs for `HEAD -> index` and `index -> worktree`
+- explicit binary and oversized-diff states, with a 512 KiB transport limit
+- per-file staging and unstaging
 - an editable commit-message field
 - local commit of already-staged changes
 - one-click AI commit-message generation from the staged patch
@@ -41,17 +45,20 @@ The Sparkle action sends the staged patch and the optional text already in the f
 
 The Host registers the loopback-only `/dsh-git` Connection RPC channel:
 
+- `status({ workspaceId })`
+- `diff({ workspaceId, path, originalPath?, staged })`
+- `stage({ workspaceId, paths })`
+- `unstage({ workspaceId, paths })`
 - `commit({ workspaceId, message })`
 - `generate-commit-message({ workspaceId, instruction? })`
 
-Both endpoints resolve `workspaceId` through the Host workspace registry. The Client cannot supply a repository path or staged patch. AI generation uses `ctx.agentDefaultModel.currentSelection()` and the configured DSH LLM adapter; the plugin stores no provider credential.
+Every endpoint resolves `workspaceId` through the Host workspace registry. The Client cannot supply a repository path or staged patch. AI generation uses `ctx.agentDefaultModel.currentSelection()` and the configured DSH LLM adapter; the plugin stores no provider credential.
 
 ## Known Limitations
 
-- Status, diff, stage, and unstage UI callbacks still use preview data and will be connected in later milestones. Stage changes with local Git before using Commit or AI generation.
 - The current release operates on one Git repository rooted at or below the current registered workspace.
 - Parent repositories, nested repository orchestration, submodules, worktrees, branch management, pull, push, discard, and partial-line staging are not implemented.
-- Diff display is limited to 512 KiB per request. AI staged-patch context is limited to 200 KB. Binary files receive Git's non-text summary.
+- Diff display is limited to 512 KiB per request. AI staged-patch context is limited to 200 KB. Binary files show an explicit non-text state.
 - AI generation uses the global DSH default model rather than a conversation-specific temporary model selection.
 - Git hooks may run during commit. Interactive credential prompts are disabled, and commit signing is disabled for the non-interactive UI operation.
 - File watching is not installed for repository changes; use Refresh after external changes. Client source changes use the development bundle watcher, while Host changes require restarting DSH Desktop.
