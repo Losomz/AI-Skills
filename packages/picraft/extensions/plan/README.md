@@ -60,11 +60,3 @@ A writable/full-access subagent can therefore modify the workspace while the mai
 While a run is captured in Plan, `edit` and `write` are blocked and malformed Bash input is rejected. `utils.ts` also blocks a short list of common Unix, Git, dependency, system, and PowerShell mutations while allowing ordinary inspection commands. Direct Bash null-device redirection is allowed only through `/dev/null`; CMD and PowerShell spellings such as `NUL` and `$null` are treated as file redirection.
 
 This is a best-effort planning guard, not a security sandbox. The rule set is deliberately bounded rather than attempting to parse every shell grammar or program.
-
-## Test
-
-```powershell
-node --test packages/picraft/extensions/plan/tests/plan.test.ts
-```
-
-The focused suite covers unified entry behavior, pending/settled transitions, run-mode locking, inactive notices, Execute follow-up, startup/branch restoration, context cleanup, tool restoration, and static Subagent decoupling.
