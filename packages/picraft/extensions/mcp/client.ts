@@ -139,7 +139,7 @@ export async function connectMcpServer(config: McpServerConfig, cwd: string, sig
 				? Object.fromEntries(Object.entries(config.headers).map(([key, value]) => [key, expandEnvironment(value)]))
 				: undefined,
 		};
-	const client = new sdk.Client({ name: "picraft-mcp", version: "0.1.8" });
+	const client = new sdk.Client({ name: "picraft-mcp", version: "0.1.9" });
 	const defaultEnvironment = typeof (stdio as { getDefaultEnvironment?: () => Record<string, string> }).getDefaultEnvironment === "function"
 		? (stdio as { getDefaultEnvironment: () => Record<string, string> }).getDefaultEnvironment()
 		: {};

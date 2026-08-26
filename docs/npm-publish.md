@@ -22,7 +22,7 @@ node -p "require('./package.json').version"
 npm version patch --no-git-tag-version
 ```
 
-如果版本已经递增过，例如当前已经是 `0.1.8`，不要再次执行 `npm version`，否则会变成 `0.1.9`。
+如果版本已经递增过，例如当前已经是 `0.1.9`，不要再次执行 `npm version`，否则会变成 `0.1.10`。
 
 生成发布包：
 
@@ -33,22 +33,16 @@ npm pack
 该命令会在当前目录生成对应版本的 tarball，例如：
 
 ```text
-pi-craft-0.1.8.tgz
+pi-craft-0.1.9.tgz
 ```
 
 发布刚生成的 tarball：
 
 ```powershell
-npm publish .\pi-craft-0.1.8.tgz --access public
+npm publish .\pi-craft-0.1.9.tgz --access public
 ```
 
-将命令中的版本号替换成实际由 `package.json` 生成的版本号。
-
-发布成功后可以删除本地 tarball：
-
-```powershell
-Remove-Item .\pi-craft-0.1.8.tgz
-```
+将命令中的版本号替换成实际由 `package.json` 生成的版本号。打包文件会保留在当前目录，不需要在发布后删除。
 
 ## 下次更新的最短流程
 

@@ -53,7 +53,7 @@ Add compatible `mcpServers` configuration to `~/.pi/agent/mcp.json` or a trusted
 pi update npm:pi-craft
 ```
 
-Pinned installs such as `npm:pi-craft@0.1.8` do not update automatically. Install a newer explicit version to move a pinned package.
+Pinned installs such as `npm:pi-craft@0.1.9` do not update automatically. Install a newer explicit version to move a pinned package.
 
 ## Uninstall
 

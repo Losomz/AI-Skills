@@ -12,13 +12,13 @@ Use `#AgentName` in the editor to quickly delegate to bundled agents:
 #Explore 查本地逻辑 | #Scout 查上游实现
 ```
 
-- `#AgentName` is a shortcut delegation request to the main agent, not a raw direct dispatch. The main agent first summarizes relevant conversation context and, when necessary, inspects the repository for key facts before building a self-contained subagent task.
+- `#AgentName` is a shortcut delegation request to the main agent, not a raw direct dispatch. The main agent first summarizes relevant conversation context and, when necessary, inspects the repository for key facts before building a bounded, self-contained subagent task with explicit scope, expected output, and a stop condition.
 - The selected agents, execution mode, task count, and order remain fixed. The main agent enriches the task context but does not replace the requested route or perform the delegated work itself.
 - `>` runs agents sequentially with `{previous}` passed to the next step.
 - `|` runs agents in parallel.
 - Agent names are matched case-insensitively and completed dynamically from the extension's same-directory `agents/*.md`.
 
-The extension also keeps the `subagent` tool available for model-driven delegation. At startup and before each agent turn, it injects a concise inventory of available subagents into Pi so the model can proactively choose the right subagent.
+The extension also keeps the `subagent` tool available for model-driven delegation and injects a concise, current inventory of available subagents before each agent turn. Use subagents for high-value work where specialization, isolated context, or genuine parallelism materially helps. The main agent delegates the smallest sufficient scope, and every spawned subagent receives a shared boundary contract that tells it to stop once the requested output has enough supporting evidence instead of expanding the investigation for completeness.
 
 ```json
 {

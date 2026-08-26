@@ -39,7 +39,7 @@ pi update npm:pi-craft
 pi remove npm:pi-craft
 ```
 
-使用 `pi install npm:pi-craft@0.1.8` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。
+使用 `pi install npm:pi-craft@0.1.9` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。
 
 需要跟踪仓库主线或参与开发时，可改用 `pi install git:github.com/Losomz/AgentFramework`。npm 与 Git 是两个不同的 package 身份，不能同时启用；从 Git 来源迁移时先移除 Git package，再安装 npm package。npm 包发布流程见 [`docs/npm-publish.md`](npm-publish.md)。
 

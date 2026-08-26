@@ -13,7 +13,7 @@ export interface ShortcutPlan {
 export const SUBAGENT_SHORTCUT_HINT_VALUE = "__subagent_shortcut_hint__";
 
 function buildSubagentInvocationPrompt(params: Record<string, unknown>): string {
-	return `这是用户通过 \`#Agent\` 发起的快捷指派。请先由主 agent 结合当前会话整理已有信息，并在必要时使用读取或搜索工具补足关键事实，然后再调用 \`subagent\` 工具。\n\n下面参数中的 agent、执行模式、任务数量和顺序是用户指定的路由约束，必须保留。task 表达的是用户原始意图，不是需要原样转发的最终委派说明。请将每个 task 整理为子 agent 可以独立执行的自包含任务，包含目标、相关背景或路径、已知事实、约束、预期输出和完成标准。只做委派所需的上下文准备，不要替子 agent 完成任务。并行任务必须彼此独立；串行任务必须保留 \`{previous}\`，不要虚构上一步结果。除非存在无法继续的关键歧义，否则不要再次询问用户确认。\n\n快捷指派参数：\n\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\`\n\n整理完成后调用 \`subagent\`。子 agent 返回后，请用中文简要总结结果。`;
+	return `这是用户通过 \`#Agent\` 发起的快捷指派。请先由主 agent 结合当前会话整理已有信息，并在必要时使用读取或搜索工具补足关键事实，然后再调用 \`subagent\` 工具。\n\n下面参数中的 agent、执行模式、任务数量和顺序是用户指定的路由约束，必须保留。task 表达的是用户原始意图，不是需要原样转发的最终委派说明。请将每个 task 整理为子 agent 可以独立执行的有界、自包含任务，包含目标、必要的前情或路径、已知事实、明确的范围边界、预期输出或证据，以及达到后即可返回的停止条件。委派能够完成目标的最小充分范围，不要要求为了完整性进行无边界探索。只做委派所需的上下文准备，不要替子 agent 完成任务。并行任务必须彼此独立；串行任务必须保留 \`{previous}\`，不要虚构上一步结果。除非存在无法继续的关键歧义，否则不要再次询问用户确认。\n\n快捷指派参数：\n\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\`\n\n整理完成后调用 \`subagent\`。子 agent 返回后，请用中文简要总结结果。`;
 }
 
 function buildAgentInvocationPrompt(agent: AgentConfig, task: string): string {

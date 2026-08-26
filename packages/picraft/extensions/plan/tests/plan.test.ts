@@ -167,13 +167,17 @@ test("context normalization removes stale controls but preserves ordinary Plan q
 	assert.equal(normalizePlanContext(normalized, directive).length, 3);
 });
 
-test("bundled Plan prompt identifies Bash null-device syntax on Windows", () => {
+test("bundled Plan prompt keeps the workflow proportional and identifies Bash null-device syntax on Windows", () => {
 	const extensionDir = fileURLToPath(new URL("../", import.meta.url));
 	const { prompts, diagnostics } = loadPlanPrompts(extensionDir);
 	assert.deepEqual(diagnostics, []);
+	assert.match(prompts.plan, /Resolve material ambiguity/);
+	assert.match(prompts.plan, /Scale exploration to task complexity/);
+	assert.match(prompts.plan, /Keep straightforward tasks brief/);
+	assert.doesNotMatch(prompts.plan, /call chains, data flow/);
 	assert.match(prompts.plan, /always executes Bash, including on Windows/);
-	assert.match(prompts.plan, /use `\/dev\/null` as the null device/);
-	assert.match(prompts.plan, /Never use `nul`, `NUL`, `nul:`, or `\$null`/);
+	assert.match(prompts.plan, /Use Bash syntax and `\/dev\/null`/);
+	assert.match(prompts.plan, /never use `nul`, `NUL`, `nul:`, or `\$null`/);
 });
 
 test("tool helpers keep only registered active candidates and use a bounded write guard", () => {

@@ -83,7 +83,7 @@ pi update npm:pi-craft
 pi remove npm:pi-craft
 ```
 
-固定版本安装使用 `pi install npm:pi-craft@0.1.8`。固定版本不会被 package 更新命令升级；需要升级时安装新的显式版本。
+固定版本安装使用 `pi install npm:pi-craft@0.1.9`。固定版本不会被 package 更新命令升级；需要升级时安装新的显式版本。
 
 #### Git 来源
 

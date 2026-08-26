@@ -106,7 +106,10 @@ function escapeXmlAttribute(value: string): string {
 
 function buildSubagentSystemPrompt(profile: AgentConfig): string {
 	const agentName = escapeXmlAttribute(profile.name.trim() || "Subagent");
-	return `<active_agent name="${agentName}"></active_agent>\n\n${profile.systemPrompt}`;
+	const delegationContract = `<delegation_contract>
+Treat the delegated task as a bounded assignment. Honor its stated objective, supplied context, in-scope boundaries, expected output, and stop condition. Explore incrementally and stop as soon as the requested output and sufficient supporting evidence have been obtained. Do not broaden the task or inspect unrelated areas merely for completeness. If the context or boundaries are insufficient, report the gap or use the narrowest reasonable interpretation instead of silently expanding the scope.
+</delegation_contract>`;
+	return `<active_agent name="${agentName}"></active_agent>\n\n${delegationContract}\n\n${profile.systemPrompt}`;
 }
 
 function buildSubagentEnvironment(profile: AgentConfig, parentSessionId: string | undefined): NodeJS.ProcessEnv {

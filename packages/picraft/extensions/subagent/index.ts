@@ -50,6 +50,8 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
+const BOUNDED_TASK_DESCRIPTION =
+	"Bounded, self-contained task with its objective, relevant context and known facts, in-scope boundaries, expected output or evidence, and an explicit stop condition";
 const READ_ONLY_TOOL_NAMES = new Set(["read", "grep", "find", "ls", "bash", "questionnaire", "scout_repository"]);
 
 function findLastActiveAgentName(ctx: ExtensionContext): string | undefined {
@@ -99,7 +101,7 @@ function formatAgentInventory(agents: AgentConfig[], includeModel = true): strin
 }
 
 function buildSubagentSystemHint(agents: AgentConfig[]): string {
-	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n\nUse the subagent tool proactively when delegation would help. Explore and Scout are read-only research agents and may be used for investigation; General has write/full access and should be used for implementation or explicitly delegated writable work. You can call subagent with {"list": true} to refresh this inventory.\n</system-reminder>`;
+	return `<system-reminder>\n# Subagent Inventory\n\n${formatAgentInventory(agents)}\n</system-reminder>`;
 }
 
 function discoverEffectiveAgents(cwd: string, scope: AgentScope, mainModel?: ModelReference) {
@@ -597,13 +599,13 @@ export type {
 
 const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
-	task: Type.String({ description: "Task to delegate to the agent" }),
+	task: Type.String({ description: BOUNDED_TASK_DESCRIPTION }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
 });
 
 const ChainItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
-	task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
+	task: Type.String({ description: `${BOUNDED_TASK_DESCRIPTION}; may include a {previous} placeholder for prior output` }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
 });
 
@@ -615,7 +617,7 @@ const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 const SubagentParams = Type.Object({
 	list: Type.Optional(Type.Boolean({ description: "List/discover available subagents and their capabilities without running any task" })),
 	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode). Case-insensitive." })),
-	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
+	task: Type.Optional(Type.String({ description: BOUNDED_TASK_DESCRIPTION })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	agentScope: Type.Optional(AgentScopeSchema),
@@ -693,24 +695,19 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	const initialInventory = formatAgentInventory(discoverEffectiveAgents(process.cwd(), "project").agents, false);
-
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
 		description: [
-			"Delegate tasks to specialized subagents with isolated context.",
+			"Run bounded tasks in specialized subagents with isolated context.",
 			"Modes: list/discover ({list:true}), single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			'Default agent scope is "project" (extension-local agents from this subagent extension\'s agents/ directory).',
 			'Agent names are case-insensitive. Use agentScope: "both" to also include user-level agents from ~/.pi/agent/agents.',
-			initialInventory,
 		].join(" "),
-		promptSnippet: `Delegate work to isolated subagents. ${initialInventory.replace(/\n/g, " ")}`,
+		promptSnippet: "Run bounded tasks in isolated subagents",
 		promptGuidelines: [
-			"Use subagent when a task benefits from isolated context, parallel exploration, or a specialized agent listed in the subagent inventory.",
-			"Use subagent with Explore for read-only codebase exploration and Scout for read-only external/upstream research when that can reduce main-context work.",
-			"Use subagent with General for implementation or other writable/full-access delegated work; General may edit files.",
-			"Use subagent with {list: true} when the available subagent inventory is unclear.",
+			"Use subagents for high-value delegation when specialization, isolated context, or genuine parallelism materially improves the work; handle routine work directly.",
+			"Before delegating, turn each task into a bounded, self-contained instruction with its objective, relevant context and known facts, in-scope boundaries, expected output or evidence, and an explicit stop condition; delegate the smallest sufficient scope.",
 		],
 		parameters: SubagentParams,
 
