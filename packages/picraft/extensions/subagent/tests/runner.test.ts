@@ -139,6 +139,10 @@ test("runAgentProcess forwards permission context with cwd, model, tools, system
 		assert.ok(payload.args.includes("read,bash"));
 		assert.ok(payload.args.includes("Task: run test task"));
 		assert.match(payload.prompt, /^<active_agent name="General"><\/active_agent>\n\n/);
+		assert.match(payload.prompt, /<delegation_contract>/);
+		assert.match(payload.prompt, /stop as soon as the requested output and sufficient supporting evidence have been obtained/);
+		assert.match(payload.prompt, /Do not broaden the task or inspect unrelated areas merely for completeness/);
+		assert.ok(payload.prompt.indexOf("<delegation_contract>") < payload.prompt.indexOf("General base prompt"));
 		assert.match(payload.prompt, /General base prompt$/);
 		assert.deepEqual(payload.permissionEnv, {
 			isSubagent: "1",

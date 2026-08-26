@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { buildShortcutInvocationPrompt, parseShortcutPlan } from "../shortcuts.ts";
 
@@ -41,11 +43,15 @@ function parseShortcutParams(text: string): Record<string, any> {
 	return JSON.parse(match[1]);
 }
 
-test("single #Agent shortcut asks the main agent to prepare a self-contained delegation", () => {
+test("single #Agent shortcut asks the main agent to prepare a bounded, self-contained delegation", () => {
 	const prompt = transformShortcut("#explore 查找同步逻辑");
 
 	assert.match(prompt, /主 agent 结合当前会话整理已有信息/);
-	assert.match(prompt, /子 agent 可以独立执行的自包含任务/);
+	assert.match(prompt, /子 agent 可以独立执行的有界、自包含任务/);
+	assert.match(prompt, /明确的范围边界/);
+	assert.match(prompt, /停止条件/);
+	assert.match(prompt, /最小充分范围/);
+	assert.match(prompt, /无边界探索/);
 	assert.match(prompt, /不要替子 agent 完成任务/);
 	assert.doesNotMatch(prompt, /不要改写任务/);
 	assert.deepEqual(parseShortcutParams(prompt), {
@@ -54,6 +60,13 @@ test("single #Agent shortcut asks the main agent to prepare a self-contained del
 		agentScope: "project",
 		confirmProjectAgents: false,
 	});
+});
+
+test("model-facing guidance uses one high-value bounded delegation policy", () => {
+	const source = readFileSync(fileURLToPath(new URL("../index.ts", import.meta.url)), "utf8");
+	assert.doesNotMatch(source, /\bproactively\b/i);
+	assert.equal(source.match(/Use subagents for high-value delegation/g)?.length, 1);
+	assert.match(source, /delegate the smallest sufficient scope/);
 });
 
 test("parallel shortcut keeps the requested agents, order, and independent task structure", () => {
