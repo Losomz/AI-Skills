@@ -30,10 +30,6 @@ export async function requestQuestionnaire(
 	);
 }
 
-function oneLine(value: string): string {
-	return value.replace(/\s+/g, " ").trim();
-}
-
 class QuestionnairePrompt implements Component, Focusable {
 	private currentTab = 0;
 	private optionIndex = 0;
@@ -43,19 +39,31 @@ class QuestionnairePrompt implements Component, Focusable {
 	private cachedLines?: string[];
 	private readonly selected = new Map<string, Set<string>>();
 	private readonly customInputs = new Map<string, string>();
+	private readonly theme: Theme;
+	private readonly keybindings: Pick<KeybindingsManager, "matches">;
+	private readonly questions: QuestionnaireQuestion[];
+	private readonly requestRender: () => void;
+	private readonly done: (result: QuestionnaireResult) => void;
+	private readonly signal?: AbortSignal;
 	private readonly editor: Editor;
 	private readonly onAbort = () => this.finish(true);
 	private focusedValue = false;
 
 	constructor(
 		tui: TUI,
-		private readonly theme: Theme,
-		private readonly keybindings: Pick<KeybindingsManager, "matches">,
-		private readonly questions: QuestionnaireQuestion[],
-		private readonly requestRender: () => void,
-		private readonly done: (result: QuestionnaireResult) => void,
-		private readonly signal?: AbortSignal,
+		theme: Theme,
+		keybindings: Pick<KeybindingsManager, "matches">,
+		questions: QuestionnaireQuestion[],
+		requestRender: () => void,
+		done: (result: QuestionnaireResult) => void,
+		signal?: AbortSignal,
 	) {
+		this.theme = theme;
+		this.keybindings = keybindings;
+		this.questions = questions;
+		this.requestRender = requestRender;
+		this.done = done;
+		this.signal = signal;
 		const editorTheme: EditorTheme = {
 			borderColor: (text) => theme.fg("accent", text),
 			selectList: {
@@ -203,10 +211,7 @@ class QuestionnairePrompt implements Component, Focusable {
 			const mark = question.multiple ? `[${selected.has(option.label) ? "x" : " "}]` : selected.has(option.label) ? "(*)" : "( )";
 			const recommended = index === question.recommended ? " (Recommended)" : "";
 			addWrapped(active ? "> " : "  ", this.theme.fg(active ? "accent" : "text", `${mark} ${option.label}${recommended}`));
-			if (option.description) {
-				const descriptionWidth = Math.max(1, renderWidth - 6);
-				lines.push(`      ${truncateToWidth(this.theme.fg("muted", oneLine(option.description)), descriptionWidth)}`);
-			}
+			if (option.description) addWrapped("      ", this.theme.fg("muted", option.description));
 		}
 
 		const customIndex = question.options.length;
