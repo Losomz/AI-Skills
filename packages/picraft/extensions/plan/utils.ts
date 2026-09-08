@@ -2,6 +2,8 @@
 
 export const PLAN_TOOL_CANDIDATES = ["read", "bash", "grep", "find", "ls", "questionnaire", "subagent"] as const;
 
+const FORBIDDEN_ADDITIONAL_PLAN_TOOLS = new Set(["edit", "write", "powershell"]);
+
 const COMMAND_START = String.raw`(?:^|[;&|\r\n])\s*`;
 const WRITE_PATTERNS = [
 	new RegExp(`${COMMAND_START}(?:rm|rmdir|mv|cp|mkdir|touch|chmod|chown|ln|tee|truncate|del|erase|copy|move|ren)\\b`, "i"),
@@ -23,11 +25,24 @@ function unique(names: readonly string[]): string[] {
 	return Array.from(new Set(names));
 }
 
+export function normalizeAdditionalPlanTools(names: readonly string[]): string[] {
+	const normalized = names.map((name) => name.trim());
+	if (normalized.some((name) => !name)) throw new Error("Additional Plan tool names must not be empty");
+	const forbidden = normalized.find((name) => FORBIDDEN_ADDITIONAL_PLAN_TOOLS.has(name));
+	if (forbidden) throw new Error(`Additional Plan tool '${forbidden}' is not allowed`);
+	return unique(normalized);
+}
+
 /** Plan never activates a tool that is missing or was already inactive. */
-export function selectPlanTools(availableNames: readonly string[], activeNames: readonly string[]): string[] {
+export function selectPlanTools(
+	availableNames: readonly string[],
+	activeNames: readonly string[],
+	additionalCandidates: readonly string[] = [],
+): string[] {
 	const available = new Set(availableNames);
 	const active = new Set(activeNames);
-	return PLAN_TOOL_CANDIDATES.filter((name) => available.has(name) && active.has(name));
+	const candidates = unique([...PLAN_TOOL_CANDIDATES, ...normalizeAdditionalPlanTools(additionalCandidates)]);
+	return candidates.filter((name) => available.has(name) && active.has(name));
 }
 
 export function restoreAvailableTools(snapshot: readonly string[], availableNames: readonly string[]): string[] {

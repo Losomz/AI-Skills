@@ -17,6 +17,7 @@ Manual exit is not Execute. It only changes mode and records a one-shot inactive
 ```text
 plan/
 ├── index.ts       # Pi registration, lifecycle, and requestMode
+├── config.ts      # trusted global/project additional-tool configuration
 ├── state.ts       # persisted/runtime state and branch-state decoding
 ├── context.ts     # prompts and hidden-context normalization
 ├── utils.ts       # tool intersection and bounded write guard
@@ -48,6 +49,22 @@ Plan candidates ∩ registered tools ∩ tools active in the relevant snapshot
 ```
 
 Leaving Plan restores the snapshot after filtering tools no longer registered.
+
+### Additional analysis tools
+
+Extra tools can be appended to the Plan candidates through strict JSON configuration. Global configuration is read from `~/.pi/agent/picraft.json`; project configuration is read from `<cwd>/.pi/picraft.json` only when Pi trusts that project.
+
+```json
+{
+  "plan": {
+    "tools": ["codegraph_explore", "codegraph_search", "memory_search"]
+  }
+}
+```
+
+Global and project entries are merged and de-duplicated. An additional tool is retained only when it is also registered and active before entering Plan. `registerPlanExtension()` also accepts `allowedTools` for programmatic setup.
+
+`edit`, `write`, and `powershell` cannot be added through this configuration. Pi exposes no generic read-only marker for extension tools, so every other configured custom tool is an explicit trust decision; only list tools whose implementation is known to be read-only.
 
 ## Subagent boundary
 

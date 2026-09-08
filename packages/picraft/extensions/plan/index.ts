@@ -3,6 +3,7 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { loadPlanToolConfiguration } from "./config.ts";
 import {
 	buildExecuteMessage,
 	createControlPayload,
@@ -24,7 +25,7 @@ import {
 	type RuntimePlanState,
 	type SessionEntryLike,
 } from "./state.ts";
-import { findToolViolation, restoreAvailableTools, selectPlanTools } from "./utils.ts";
+import { findToolViolation, normalizeAdditionalPlanTools, restoreAvailableTools, selectPlanTools } from "./utils.ts";
 
 const defaultExtensionDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +33,7 @@ export interface PlanExtensionOptions {
 	extensionDir?: string;
 	prompts?: PlanPrompts;
 	schedule?: (task: () => void) => void;
+	allowedTools?: readonly string[];
 }
 
 interface ModeResult {
@@ -49,8 +51,11 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		: loadPlanPrompts(options.extensionDir ?? defaultExtensionDir);
 	const prompts = loaded.prompts;
 	const schedule = options.schedule ?? ((task: () => void) => setImmediate(task));
+	const optionAllowedTools = normalizeAdditionalPlanTools(options.allowedTools ?? []);
 	const reportedDiagnostics = new Set<string>();
 
+	let configuredPlanTools = [...optionAllowedTools];
+	let planToolDiagnostics: string[] = [];
 	let state: RuntimePlanState = { mode: "execute", revision: 0 };
 	let beforeStartSeen = false;
 	let actionPromptOpen = false;
@@ -59,6 +64,16 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 
 	function availableTools(): string[] {
 		return unique(pi.getAllTools().map((tool) => tool.name));
+	}
+
+	function selectTools(availableNames: readonly string[], activeNames: readonly string[]): string[] {
+		return selectPlanTools(availableNames, activeNames, configuredPlanTools);
+	}
+
+	function refreshPlanTools(ctx: ExtensionContext): void {
+		const configured = loadPlanToolConfiguration({ cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted() });
+		configuredPlanTools = unique([...optionAllowedTools, ...configured.tools]);
+		planToolDiagnostics = configured.diagnostics;
 	}
 
 	function persist(): void {
@@ -83,7 +98,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 
 	function reportDiagnostics(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
-		for (const diagnostic of loaded.diagnostics) {
+		for (const diagnostic of [...loaded.diagnostics, ...planToolDiagnostics]) {
 			if (reportedDiagnostics.has(diagnostic)) continue;
 			reportedDiagnostics.add(diagnostic);
 			ctx.ui.notify(diagnostic, "warning");
@@ -105,7 +120,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 			const activeSet = new Set(active);
 			const disabledInOutgoingPlan = new Set(
 				state.mode === "plan" && outgoingSnapshot
-					? selectPlanTools(available, outgoingSnapshot).filter((name) => !activeSet.has(name))
+					? selectTools(available, outgoingSnapshot).filter((name) => !activeSet.has(name))
 					: [],
 			);
 			const keepCurrentChoices = (baseline: string[]) =>
@@ -118,7 +133,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 				// Use the target branch snapshot, while carrying explicit /tools disables
 				// instead of the automatic restrictions from the outgoing Plan branch.
 				const baseline = keepCurrentChoices(savedBaseline);
-				pi.setActiveTools(selectPlanTools(available, baseline));
+				pi.setActiveTools(selectTools(available, baseline));
 				state = {
 					mode: "plan",
 					revision: targetState.revision,
@@ -166,7 +181,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		const available = availableTools();
 		if (target === "plan") {
 			const baseline = unique(pi.getActiveTools());
-			const tools = selectPlanTools(available, baseline);
+			const tools = selectTools(available, baseline);
 			pi.setActiveTools(tools);
 			state = { mode: "plan", revision, toolsBeforePlan: baseline };
 			if (origin === "manual") notify(ctx, `Plan enabled. Tools: ${tools.join(", ") || "none"}.`);
@@ -334,6 +349,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		refreshPlanTools(ctx);
 		reportDiagnostics(ctx);
 		hydrateCurrentBranch(ctx);
 		if (pi.getFlag("plan") === true) requestMode("plan", "startup", ctx);

@@ -27,6 +27,20 @@ Restart Pi after installation, or run `/reload` in an existing Pi session.
 
 PiCraft requires Pi 0.80.4 or newer.
 
+## Plan Analysis Tools
+
+Plan keeps a conservative built-in tool set. Add trusted read-only extension tools in `~/.pi/agent/picraft.json`, or in a trusted project's `.pi/picraft.json`:
+
+```json
+{
+  "plan": {
+    "tools": ["codegraph_explore", "codegraph_search", "memory_search"]
+  }
+}
+```
+
+Configured tools must already be registered and active. Do not list custom tools that can modify files or external state.
+
 ## MCP
 
 Add compatible `mcpServers` configuration to `~/.pi/agent/mcp.json` or a trusted project's `.mcp.json`, then use `/mcp` to enable servers and individual tools. Servers are disabled by default and connect only when selected.
