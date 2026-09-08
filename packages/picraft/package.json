@@ -1,6 +1,6 @@
 {
   "name": "pi-craft",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "description": "An opinionated Pi workflow suite for planning, intent clarification, permissions, subagents, Git automation, project initialization, and publishing.",
   "license": "MIT",
@@ -39,7 +39,8 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "node --test extensions/git/tests/commit.test.ts extensions/permission/tests/core.test.ts extensions/permission/tests/policy.test.ts extensions/permission/tests/presentation.test.ts extensions/permission/tests/queue.test.ts extensions/permission/tests/revalidation.test.ts extensions/permission/tests/ui-model.test.ts extensions/subagent/tests/model-catalog.test.ts extensions/subagent/tests/model-overrides.test.ts extensions/subagent/tests/process-args.test.ts extensions/subagent/tests/repository-cache.test.ts extensions/subagent/tests/scout-cache-paths.test.ts extensions/subagent/tests/scout-capability.test.ts"
+    "test": "node --test extensions/plan/tests/plan-tools.test.ts extensions/questionnaire/tests/ui.test.ts extensions/git/tests/commit.test.ts extensions/permission/tests/core.test.ts extensions/permission/tests/policy.test.ts extensions/permission/tests/presentation.test.ts extensions/permission/tests/queue.test.ts extensions/permission/tests/revalidation.test.ts extensions/permission/tests/ui-model.test.ts extensions/subagent/tests/model-catalog.test.ts extensions/subagent/tests/model-overrides.test.ts extensions/subagent/tests/process-args.test.ts extensions/subagent/tests/repository-cache.test.ts extensions/subagent/tests/scout-cache-paths.test.ts extensions/subagent/tests/scout-capability.test.ts",
+    "pack:artifact": "npm pack --pack-destination artifacts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0"

@@ -10,4 +10,5 @@ node_modules/
 
 # Local build and upstream-inspection residue
 *.tsbuildinfo
+*.tgz
 /.tmp-dsh-upstream/
